@@ -19,9 +19,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap">
 <style>
 /* Layout: a navigation rail (left on tablets, a bottom tab bar on phones) beside the current screen.
-   Calendar: sticky family bar (date, clock, people chips, view switch) over one working surface:
-   Day = one column per person (schedule + to-dos), Week = 7-day grid, Month = overview.
-   Profile: your name, which calendar person is you, settings, household and account. */
+   Each screen has a sticky bar (arrows, title, clock, that screen's actions, people chips) over its content:
+   Calendar = the month with the picked day's events, To-dos = one column per person for a day,
+   Profile = your name, colour and picture, settings, household and account. */
 :root{
   --bg:#F7F5FB; --surface:#FFFFFF; --sunk:#EEEBF6; --ink:#2B2840; --muted:#6C6884;
   --line:#E5E1F0; --accent:#C3B1F5; --accent-ink:#2B2840; --today:#FFF5DC; --danger:#C2415B; --tint:40%;
@@ -114,23 +114,14 @@ main{padding-block:16px 40px}
 .quick{display:flex;gap:6px;margin-top:4px}
 .quick input{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:8px 10px;min-height:40px}
 
-/* week view */
-.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
-.wday{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:8px;display:flex;flex-direction:column;gap:6px;min-height:200px;min-width:0}
-.wday.is-today{background:var(--today)}
-.wday .dh{display:flex;align-items:baseline;gap:6px;border:0;background:none;padding:2px 2px 6px;text-align:left}
-.wday .dh b{font-family:var(--display);font-size:22px}
-.wday .dh span{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
-.wday .ev{flex-direction:column;gap:2px;padding:6px 8px}
-.wday .ev .t{min-width:0;padding:0}
-.addday{margin-top:auto;border:1px dashed var(--line);background:transparent;border-radius:10px;min-height:36px;color:var(--muted);font-size:13px}
-
 /* month view */
 .mhead,.month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
 .mhead div{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;padding:0 6px 6px}
 .mcell{background:var(--surface);border-radius:10px;min-height:104px;padding:6px;border:0;text-align:left;display:flex;flex-direction:column;gap:3px;min-width:0;overflow:hidden}
 .mcell.out{opacity:.45}
 .mcell.is-today{background:var(--today)}
+.mcell.is-today .n{background:var(--ink);color:var(--surface);border-radius:999px;min-width:24px;height:24px;display:inline-grid;place-items:center;padding:0 6px;align-self:flex-start}
+.mcell[aria-pressed="true"]{box-shadow:inset 0 0 0 2px var(--accent)}
 .mcell .n{font-weight:600;font-variant-numeric:tabular-nums;font-size:13px}
 .mcell .pill{font-size:12px;border-radius:6px;padding:1px 6px;background:color-mix(in srgb,var(--c,#888) var(--tint),var(--surface));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mcell .more{font-size:11px;color:var(--muted)}
@@ -171,8 +162,6 @@ main{padding-block:16px 40px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;z-index:30;font-size:14px;max-width:calc(100% - 32px)}
 
 @media (max-width:760px){
-  .week{grid-template-columns:1fr}
-  .wday{min-height:0}
   .cols{grid-auto-columns:86%}
   .mcell{min-height:58px}
   .mcell .pill,.mcell .more{display:none}
@@ -182,7 +171,7 @@ main{padding-block:16px 40px}
   header{position:static}
   .hrow{gap:8px}
 }
-@media (prefers-reduced-motion:no-preference){.col,.wday,.mcell,.ev{transition:background-color .2s}}
+@media (prefers-reduced-motion:no-preference){.col,.mcell,.ev{transition:background-color .2s}}
 .addr{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:14px;background:var(--sunk);border-radius:10px;padding:10px 12px;overflow-wrap:anywhere;user-select:all}
 .tabs{display:flex;gap:6px;flex-wrap:wrap}
 .steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
@@ -190,7 +179,7 @@ main{padding-block:16px 40px}
 .log{display:flex;flex-direction:column;gap:6px;font-size:13px}
 .log .prow{align-items:flex-start}
 .welcome input{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px;min-height:44px;width:100%}
-body.nokey header .nav,body.nokey header .seg,body.nokey #people{display:none}
+body.nokey .pager .arrows,body.nokey header .acts,body.nokey #people{display:none}
 .badge{background:var(--accent);color:var(--accent-ink);border-radius:999px;font-size:12px;font-weight:700;min-width:20px;height:20px;padding:0 6px;display:inline-grid;place-items:center;font-variant-numeric:tabular-nums}
 details summary{list-style:none}
 .signin{display:flex;flex-direction:column;gap:10px;align-items:stretch}
@@ -231,8 +220,23 @@ body.has-nav .gut{padding-left:16px}
 }
 .toast{bottom:calc(20px + var(--tabbar) + env(safe-area-inset-bottom,0px))}
 
+/* header: the screen's title with its arrows, then that screen's actions */
+.pager{display:flex;align-items:center;gap:10px;flex:1 1 280px;min-width:0}
+.pager .arrows{display:flex;gap:4px;flex:none}
+.when{flex:0 1 auto;min-width:0}
+.when .sub{flex-wrap:wrap;row-gap:0}
+.when .sub>span{white-space:nowrap}
+body.scr-calendar #addTodo,body.scr-todos #addEvent,body.scr-todos #fromEmail{display:none}
+body.scr-profile .pager .arrows,body.scr-profile header .acts,body.scr-profile #people,body.scr-profile #clock{display:none}
+
+/* calendar: the month, and the chosen day's events beside it (below it on phones) */
+.calwrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+@media (max-width:1000px){.calwrap{grid-template-columns:minmax(0,1fr)}}
+.agenda{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:8px}
+.agenda h2{font-family:var(--display);font-size:20px;margin:0 0 4px}
+.agenda .addday{border:1px dashed var(--line);background:transparent;border-radius:10px;min-height:42px;color:var(--muted);font-size:14px;margin-top:4px}
+
 /* profile and settings */
-body.scr-profile header .nav,body.scr-profile header .seg,body.scr-profile #people,body.scr-profile #clock{display:none}
 .pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:14px;align-items:start;max-width:1100px}
 .card{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
 .card h2{font-family:var(--display);font-size:20px;margin:0}
@@ -258,6 +262,7 @@ body.scr-profile header .nav,body.scr-profile header .seg,body.scr-profile #peop
 <nav class="rail" id="rail" aria-label="Main">
   <img class="logo" src="icon.svg" alt="">
   <a class="tab" href="#calendar" data-screen="calendar"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r=".6" fill="currentColor"/><circle cx="12" cy="14.5" r=".6" fill="currentColor"/><circle cx="15.5" cy="14.5" r=".6" fill="currentColor"/></svg></span>Calendar</a>
+  <a class="tab" href="#todos" data-screen="todos"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M8 12.2l2.8 2.8L16.2 9.5"/></svg></span>To-dos</a>
   <span class="grow"></span>
   <a class="tab" href="#profile" data-screen="profile" id="tab-profile"><span class="ic"></span>Profile</a>
 </nav>
@@ -265,20 +270,18 @@ body.scr-profile header .nav,body.scr-profile header .seg,body.scr-profile #peop
 <header>
   <div class="gut">
     <div class="hrow">
-      <div class="when"><h1 id="title">Loading…</h1><div class="sub"><span id="clock"></span><span id="sync"><i class="dot-sync"></i> Connecting</span></div></div>
-      <div class="nav">
-        <button class="btn icon" id="prev" aria-label="Previous"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <button class="btn" id="todayBtn">Today</button>
-        <button class="btn icon" id="next" aria-label="Next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
+      <div class="pager">
+        <div class="arrows">
+          <button class="btn icon ghost" id="prev" aria-label="Previous"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <button class="btn icon ghost" id="next" aria-label="Next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
+        </div>
+        <div class="when"><h1 id="title">Loading…</h1><div class="sub"><span id="clock"></span><span id="sync"><i class="dot-sync"></i> Connecting</span></div></div>
       </div>
-      <div class="seg" role="group" aria-label="View">
-        <button id="v-day" data-view="day">Day</button><button id="v-week" data-view="week">Week</button><button id="v-month" data-view="month">Month</button>
-      </div>
-      <div class="nav">
+      <div class="nav acts">
         <button class="btn primary" id="addEvent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Event</button>
-        <button class="btn" id="addTodo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>To-do</button>
+        <button class="btn primary" id="addTodo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>To-do</button>
         <button class="btn" id="fromEmail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg>From email</button>
-        <button class="btn icon" id="menuBtn" aria-label="Household settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3.2 3-5 5.5-5s4.7 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.2c2.2.1 3.8 1.6 4.5 4.3"/></svg></button>
+        <button class="btn icon" id="menuBtn" aria-label="People and colours"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3.2 3-5 5.5-5s4.7 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.2c2.2.1 3.8 1.6 4.5 4.3"/></svg></button>
       </div>
     </div>
     <div class="people" id="people"></div>
@@ -294,7 +297,7 @@ const OLD={'#E0533A':'#F7B4A0','#2B7FBF':'#A6D3F2','#8A56C9':'#CDB8F4','#D69A00'
 const normM=m=>OLD[m.color]?{...m,color:OLD[m.color]}:m;
 const KEY='household-calendar-v1';
 // Per-device settings, changed under Profile › Settings.
-const settings={open:'last',weekStart:'mon',clock:'auto'};
+const settings={start:'calendar',weekStart:'mon',clock:'auto'};
 try{Object.assign(settings,JSON.parse(localStorage.getItem(KEY+':settings')||'{}'))}catch(e){}
 const saveSettings=()=>{try{localStorage.setItem(KEY+':settings',JSON.stringify(settings))}catch(e){}};
 const DOW=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -313,10 +316,12 @@ const MAIL_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
 let data={members:[],events:[],todos:[]};
-const screenFromHash=()=>location.hash==='#profile'?'profile':'calendar';
-const ui={view:'day',cursor:todayStr(),hidden:new Set(),mode:'connecting',screen:screenFromHash()};
-if(settings.open!=='last')ui.view=settings.open;
-else try{const v=localStorage.getItem(KEY+':view');if(v)ui.view=v}catch(e){}
+// Screens: #calendar (a month of events), #todos (one day of everyone's to-dos) and #profile.
+const SCREENS=['calendar','todos','profile'];
+const screenFromHash=()=>{const h=location.hash.slice(1);return SCREENS.includes(h)?h:settings.start==='todos'?'todos':'calendar'};
+const monthOf=d=>d.slice(0,8)+'01';
+// cursor: the to-do day. month: the calendar's month (its 1st). sel: the day picked on the calendar.
+const ui={cursor:todayStr(),month:monthOf(todayStr()),sel:todayStr(),hidden:new Set(),mode:'connecting',screen:screenFromHash()};
 
 /* ---------- storage: the shared server, signed in per person ---------- */
 const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
@@ -452,35 +457,31 @@ function evChip(e,compact){
   return`<button class="ev" style="--c:${evColor(e)}" data-ev="${e.id}"><span class="t">${esc(time)}</span><span class="x"><span class="ttl">${esc(e.title)}</span>${e.source==='email'?'<span class="tag" style="margin-left:6px">from email</span>':''}${e.location?`<div class="loc">${esc(e.location)}</div>`:''}</span>${compact?'':dots(e)}</button>`;
 }
 function renderHeader(){
-  const c=parseD(ui.cursor);let t;
-  if(ui.view==='day')t=c.toLocaleDateString([],{weekday:'long',day:'numeric',month:'long'});
-  else if(ui.view==='week'){const a=parseD(weekStart(ui.cursor)),b=parseD(addDays(weekStart(ui.cursor),6));
-    t=`${a.toLocaleDateString([],{day:'numeric',month:'short'})} – ${b.toLocaleDateString([],{day:'numeric',month:'short'})}`}
-  else t=c.toLocaleDateString([],{month:'long',year:'numeric'});
-  $('#title').textContent=ui.screen==='profile'&&API.session?'Profile':t;
+  const t=ui.screen==='profile'&&API.session?'Profile'
+    :ui.screen==='todos'?(ui.cursor===todayStr()?'Today':parseD(ui.cursor).toLocaleDateString([],{weekday:'long',day:'numeric',month:'long'}))
+    :parseD(ui.month).toLocaleDateString([],{month:'long',year:'numeric'});
+  $('#title').textContent=t;
+  $('#prev').setAttribute('aria-label',ui.screen==='todos'?'Previous day':'Previous month');
+  $('#next').setAttribute('aria-label',ui.screen==='todos'?'Next day':'Next month');
   $('#sync').innerHTML=ui.mode==='shared'?`<i class="dot-sync ok"></i> ${esc(meta.household?.name||'Shared with your household')}`:!(API.session&&API.hid)?'':ui.mode==='offline'?'<i class="dot-sync"></i> Reconnecting…':'<i class="dot-sync"></i> Connecting…';
-  document.querySelectorAll('header .seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===ui.view));
   $('#people').innerHTML=members().map(m=>`<button class="pchip" data-toggle="${m.id}" aria-pressed="${!ui.hidden.has(m.id)}"><span class="av" style="background:${m.color}">${avTxt(m)}</span>${esc(m.name)}</button>`).join('');
   $('#people').hidden=!data.members.length;
   const pend=meta.inbound?meta.inbound.filter(r=>r.status==='pending').length:0;
   $('#fromEmail').innerHTML=MAIL_ICON+'From email'+(pend?`<span class="badge">${pend}</span>`:'');
 }
-function renderClock(){$('#clock').textContent=new Date().toLocaleTimeString([],clockOpts())}
+// On today's to-dos the title just says Today, so the date goes beside the time.
+function renderClock(){$('#clock').textContent=(ui.screen==='todos'&&ui.cursor===todayStr()?parseD(ui.cursor).toLocaleDateString([],{weekday:'long',day:'numeric',month:'long'})+' · ':'')+new Date().toLocaleTimeString([],clockOpts())}
 
-function renderDay(){
-  const d=ui.cursor,evs=eventsOn(d);
-  const fam=evs.filter(e=>!e.memberIds||!e.memberIds.length);
-  let h='';
-  if(fam.length)h+=`<div class="house"><span class="lbl">Whole household</span>${fam.map(e=>`<div style="flex:1 1 220px;min-width:0">${evChip(e)}</div>`).join('')}</div>`;
-  h+='<div class="cols">'+shown().map(m=>{
-    const mine=evs.filter(e=>(e.memberIds||[]).includes(m.id));
+// To-dos: one column per person for the chosen day.
+function renderTodos(){
+  const d=ui.cursor;
+  let h='<div class="cols">'+shown().map(m=>{
     const todos=data.todos.filter(t=>t.memberId===m.id&&todoOn(t,d)).sort((a,b)=>(isDone(a,d)-isDone(b,d))||(a.title||'').localeCompare(b.title||''));
     const done=todos.filter(t=>isDone(t,d)).length,pct=todos.length?Math.round(done/todos.length*100):0;
     return`<section class="col" style="--c:${m.color}">
       <div class="colhead"><span class="av lg" style="background:${m.color}">${avTxt(m)}</span><h2>${esc(m.name)}</h2>
         <div class="meta">${todos.length?`${done} of ${todos.length} done`:''}</div>${todos.length?`<div class="ring" style="--p:${pct}"><span>${pct}%</span></div>`:''}</div>
-      <div class="sec"><h3>Schedule</h3>${mine.length?mine.map(e=>evChip(e,true)).join(''):'<div class="empty">Nothing scheduled</div>'}</div>
-      <div class="sec"><h3>To-dos</h3>${todos.map(t=>{
+      <div class="sec">${todos.map(t=>{
         const late=t.date&&t.date<d&&!t.done;
         return`<div class="todo ${isDone(t,d)?'done':''}"><button class="check" data-check="${t.id}" aria-label="Mark ${esc(t.title)} done">${CHECK}</button><button class="lab" data-todo="${t.id}">${esc(t.title)}</button>${t.repeat==='daily'?'<span class="tag">Daily</span>':late?'<span class="tag late">Overdue</span>':''}</div>`}).join('')||'<div class="empty">All clear</div>'}
         <form class="quick" data-quick="${m.id}"><input id="q-${m.id}" type="text" placeholder="Add a to-do for ${esc(m.name)}" aria-label="New to-do for ${esc(m.name)}" enterkeyhint="done"><button class="btn icon" aria-label="Add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg></button></form>
@@ -488,18 +489,18 @@ function renderDay(){
   if(!shown().length)h+='<div class="banner">Everyone is hidden. Tap a name above to show them again.</div>';
   return h;
 }
-function renderWeek(){
-  const s=weekStart(ui.cursor),t=todayStr();
-  return'<div class="week">'+[0,1,2,3,4,5,6].map(i=>{const d=addDays(s,i),dt=parseD(d),evs=eventsOn(d);
-    return`<div class="wday ${d===t?'is-today':''}"><button class="dh" data-goday="${d}"><b>${dt.getDate()}</b><span>${dows()[i]}</span></button>${evs.map(e=>evChip(e)).join('')}<button class="addday" data-newev="${d}">+ Add</button></div>`}).join('')+'</div>';
-}
-function renderMonth(){
-  const c=parseD(ui.cursor),first=ymd(new Date(c.getFullYear(),c.getMonth(),1)),s=weekStart(first),t=todayStr();
-  let h='<div class="mhead">'+dows().map(x=>`<div>${x}</div>`).join('')+'</div><div class="month">';
+// Calendar: the month, with the picked day's events alongside.
+function renderCalendar(){
+  const c=parseD(ui.month),s=weekStart(ui.month),t=todayStr();
+  let h='<div class="calwrap"><div><div class="mhead">'+dows().map(x=>`<div>${x}</div>`).join('')+'</div><div class="month">';
   for(let i=0;i<42;i++){const d=addDays(s,i),dt=parseD(d),evs=eventsOn(d);
     if(i===35&&dt.getMonth()!==c.getMonth())break;
-    h+=`<button class="mcell ${dt.getMonth()!==c.getMonth()?'out':''} ${d===t?'is-today':''}" data-goday="${d}"><span class="n">${dt.getDate()}</span>${evs.slice(0,3).map(e=>`<span class="pill" style="--c:${evColor(e)}">${e.allDay?'':esc(fmtTime(e.start))+' '}${esc(e.title)}</span>`).join('')}${evs.length>3?`<span class="more">+${evs.length-3} more</span>`:''}<span class="mdots">${evs.slice(0,6).map(e=>`<i style="background:${evColor(e)}"></i>`).join('')}</span></button>`}
-  return h+'</div>';
+    h+=`<button class="mcell ${dt.getMonth()!==c.getMonth()?'out':''} ${d===t?'is-today':''}" data-sel="${d}" aria-pressed="${d===ui.sel}" aria-label="${esc(dt.toLocaleDateString([],{weekday:'long',day:'numeric',month:'long'}))}${evs.length?`, ${evs.length} event${evs.length>1?'s':''}`:''}"><span class="n">${dt.getDate()}</span>${evs.slice(0,3).map(e=>`<span class="pill" style="--c:${evColor(e)}">${e.allDay?'':esc(fmtTime(e.start))+' '}${esc(e.title)}</span>`).join('')}${evs.length>3?`<span class="more">+${evs.length-3} more</span>`:''}<span class="mdots">${evs.slice(0,6).map(e=>`<i style="background:${evColor(e)}"></i>`).join('')}</span></button>`}
+  const evs=eventsOn(ui.sel),sd=parseD(ui.sel);
+  h+=`</div></div><aside class="agenda" aria-live="polite"><h2>${ui.sel===t?'Today':esc(sd.toLocaleDateString([],{weekday:'long',day:'numeric',month:'long'}))}</h2>
+    ${evs.length?evs.map(e=>evChip(e)).join(''):'<div class="empty">Nothing on this day.</div>'}
+    <button class="addday" data-newev="${ui.sel}">+ Add an event</button></aside></div>`;
+  return h;
 }
 const APPLE_ICON='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8 0 0-2.5-1-2.5-3.9zM14 5.5c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1.1.1 2.1-.6 2.8-1.4z"/></svg>';
 const G_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.5-.2-2.2H12v4.2h5.9c-.3 1.4-1 2.5-2.2 3.3v2.7h3.6c2-1.9 3.2-4.7 3.2-8z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.7c-1 .7-2.2 1-3.7 1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.8C3.9 20.5 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.8 14.1c-.2-.7-.4-1.4-.4-2.1s.1-1.4.4-2.1V7.1H2.1C1.4 8.6 1 10.2 1 12s.4 3.4 1.1 4.9l3.7-2.8z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2C17.5 2.1 15 1 12 1 7.7 1 3.9 3.5 2.1 7.1l3.7 2.8c.9-2.6 3.3-4.5 6.2-4.5z"/></svg>';
@@ -532,9 +533,9 @@ function renderWelcome(){
 }
 function renderNav(){
   const on=!!API.session;document.body.classList.toggle('has-nav',on);
-  const prof=on&&ui.screen==='profile';document.body.classList.toggle('scr-profile',prof);
-  document.querySelectorAll('.rail [data-screen]').forEach(a=>a.toggleAttribute('aria-current',a.dataset.screen===(prof?'profile':'calendar')));
-  document.querySelectorAll('.rail [aria-current]').forEach(a=>a.setAttribute('aria-current','page'));
+  const scr=on?ui.screen:'calendar';
+  for(const x of SCREENS)document.body.classList.toggle('scr-'+x,scr===x);
+  document.querySelectorAll('.rail [data-screen]').forEach(a=>a.dataset.screen===scr?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current'));
   const m=me(),u=account.user||{};
   $('#tab-profile .ic').innerHTML=m?`<span class="av" style="background:${m.color}">${avTxt(m)}</span>`
     :'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/></svg>';
@@ -564,7 +565,7 @@ function renderProfile(){
   const wakeOk='wakeLock' in navigator;
   out+=`<section class="card"><h2>Settings</h2>
     ${setRow('Appearance','',segBtns('theme',theme,[['system','Auto'],['light','Light'],['dark','Dark']]))}
-    ${setRow('Open the calendar on','',segBtns('open',settings.open,[['last','Last used'],['day','Day'],['week','Week'],['month','Month']]))}
+    ${setRow('Open the app on','',segBtns('start',settings.start,[['calendar','Calendar'],['todos','To-dos']]))}
     ${setRow('Week starts on','',segBtns('weekStart',settings.weekStart,[['mon','Monday'],['sun','Sunday']]))}
     ${setRow('Time','',segBtns('clock',settings.clock,[['auto','Auto'],['12','12-hour'],['24','24-hour']]))}
     ${wakeOk?setRow('Keep the screen on','For a wall or kitchen display. Lasts until you close the app.',`<input id="pf-wake" type="checkbox" ${wakeLock?'checked':''} aria-label="Keep the screen on" style="width:24px;height:24px;accent-color:var(--accent)">`):''}
@@ -607,7 +608,7 @@ function profileClick(t){
   const d=t.dataset,m=me(),u=account.user||{};
   if(d.set){
     if(d.set==='theme')setTheme(d.val);
-    else{settings[d.set]=d.val;saveSettings();if(d.set==='open'&&d.val!=='last')ui.view=d.val}
+    else{settings[d.set]=d.val;saveSettings()}
     render();return true}
   if(d.mycolor){saveMe({color:d.mycolor});return true}
   if(d.emoji!==undefined){saveMe({emoji:d.emoji||null,photo:null});return true}
@@ -630,12 +631,12 @@ function render(){
   document.body.classList.toggle('nokey',!inside);
   renderNav();renderHeader();renderClock();
   let h='';
-  if(data.members.some(m=>m.example))h+=`<div class="banner"><b>Example family.</b> These people and events are made up so you can see how it works.<button class="btn" data-act="clearex">Clear examples</button></div>`;
+  if(ui.screen!=='profile'&&data.members.some(m=>m.example))h+=`<div class="banner"><b>Example family.</b> These people and events are made up so you can see how it works.<button class="btn" data-act="clearex">Clear examples</button></div>`;
   if(!API.session)h=renderSignIn();
   else if(ui.screen==='profile')h=renderProfile();
   else if(!API.hid)h=renderJoin();
   else if(!data.members.length)h+=renderWelcome();
-  else h+=ui.view==='day'?renderDay():ui.view==='week'?renderWeek():renderMonth();
+  else h+=ui.screen==='todos'?renderTodos():renderCalendar();
   const main=$('#main'),act0=document.activeElement,focused=act0&&main.contains(act0)&&act0.tagName==='INPUT'&&act0.type==='text'&&act0.id,val=focused&&act0.value;
   main.innerHTML=h;
   if(!API.session)mountGoogleButton();
@@ -644,21 +645,22 @@ function render(){
 setInterval(renderClock,15000);
 
 /* ---------- interactions ---------- */
+// The arrows move the to-do day, or the calendar's month (picking today in this month, else the 1st).
 function shift(n){
-  if(ui.view==='day')ui.cursor=addDays(ui.cursor,n);
-  else if(ui.view==='week')ui.cursor=addDays(ui.cursor,7*n);
-  else{const c=parseD(ui.cursor);ui.cursor=ymd(new Date(c.getFullYear(),c.getMonth()+n,1))}
+  if(ui.screen==='todos')ui.cursor=addDays(ui.cursor,n);
+  else{const c=parseD(ui.month);ui.month=ymd(new Date(c.getFullYear(),c.getMonth()+n,1));ui.sel=monthOf(todayStr())===ui.month?todayStr():ui.month}
   render();
 }
+function goToday(){ui.cursor=todayStr();ui.month=monthOf(ui.cursor);ui.sel=ui.cursor}
 $('#prev').onclick=()=>shift(-1);$('#next').onclick=()=>shift(1);
-$('#todayBtn').onclick=()=>{ui.cursor=todayStr();render()};
-document.querySelectorAll('header .seg button').forEach(b=>b.onclick=()=>{ui.view=b.dataset.view;try{localStorage.setItem(KEY+':view',ui.view)}catch(e){}render()});
-$('#addEvent').onclick=()=>data.members.length?eventSheet({date:ui.cursor}):peopleSheet();
+// Tapping the tab of the screen you're already on brings it back to today.
+$('#rail').addEventListener('click',e=>{const a=e.target.closest('[data-screen]');if(a&&a.dataset.screen===ui.screen&&ui.screen!=='profile'){e.preventDefault();goToday();render()}});
+$('#addEvent').onclick=()=>data.members.length?eventSheet({date:ui.sel}):peopleSheet();
 $('#addTodo').onclick=()=>data.members.length?todoSheet({}):peopleSheet();
 $('#menuBtn').onclick=()=>peopleSheet();
 $('#people').onclick=e=>{const b=e.target.closest('[data-toggle]');if(!b)return;const id=b.dataset.toggle;ui.hidden.has(id)?ui.hidden.delete(id):ui.hidden.add(id);render()};
 $('#main').addEventListener('click',e=>{
-  const t=e.target.closest('[data-ev],[data-check],[data-todo],[data-goday],[data-newev],[data-act],[data-hh],[data-mycolor],[data-emoji],[data-set]');if(!t)return;
+  const t=e.target.closest('[data-ev],[data-check],[data-todo],[data-sel],[data-newev],[data-act],[data-hh],[data-mycolor],[data-emoji],[data-set]');if(!t)return;
   if(ui.screen==='profile'&&profileClick(t))return;
   if(t.dataset.hh){pickHousehold(t.dataset.hh);render();refresh();return}
   if(t.dataset.act==='apple'||t.dataset.act==='google'){providerSignIn(t.dataset.act);return}
@@ -667,7 +669,7 @@ $('#main').addEventListener('click',e=>{
   if(t.dataset.ev)eventSheet(data.events.find(x=>x.id===t.dataset.ev));
   else if(t.dataset.check){const td=data.todos.find(x=>x.id===t.dataset.check);if(td)toggleTodo(td,ui.cursor)}
   else if(t.dataset.todo)todoSheet(data.todos.find(x=>x.id===t.dataset.todo));
-  else if(t.dataset.goday){ui.cursor=t.dataset.goday;ui.view='day';render()}
+  else if(t.dataset.sel){ui.sel=t.dataset.sel;if(monthOf(ui.sel)!==ui.month)ui.month=monthOf(ui.sel);render()}
   else if(t.dataset.newev)eventSheet({date:t.dataset.newev});
   else if(t.dataset.act==='people')peopleSheet();
   else if(t.dataset.act==='examples')loadExamples();
