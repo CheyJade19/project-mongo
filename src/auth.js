@@ -192,7 +192,8 @@ export async function authRoutes(request, env, path, ip) {
     const hh = await env.DB.prepare(
       "SELECT h.id, h.name, m.role FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = ? ORDER BY m.joined_at",
     ).bind(user.id).all();
-    return json({ user: { email: user.email, name: user.name }, households: hh.results });
+    const ids = await env.DB.prepare("SELECT DISTINCT provider FROM identities WHERE user_id = ?").bind(user.id).all();
+    return json({ user: { id: user.id, email: user.email, name: user.name, providers: ids.results.map((r) => r.provider) }, households: hh.results });
   }
 
   if (path[0] === "me" && method === "PATCH") {
@@ -261,6 +262,7 @@ export async function deleteHousehold(env, householdId) {
     env.DB.prepare("DELETE FROM inboxes WHERE household_id = ?").bind(householdId),
     env.DB.prepare("DELETE FROM inbound WHERE household_id = ?").bind(householdId),
     env.DB.prepare("DELETE FROM invites WHERE household_id = ?").bind(householdId),
+    env.DB.prepare("DELETE FROM photos WHERE household_id = ?").bind(householdId),
     env.DB.prepare("DELETE FROM memberships WHERE household_id = ?").bind(householdId),
     env.DB.prepare("DELETE FROM households WHERE id = ?").bind(householdId),
   ]);

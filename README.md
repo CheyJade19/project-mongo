@@ -33,6 +33,10 @@ test/              Unit tests (npm test)
 
 **Accounts and households.** Each person signs in with Apple, Google, or a six-digit code sent to their email. A household has an owner and members. Anyone in it can create an invite (an 8-character code and link that works for 7 days and up to 10 people). The owner can remove people or delete the household. Everyone can leave a household, sign out, or delete their account from **Household › Account and privacy**, as the App Store and Google Play require.
 
+**Finding your way around.** A navigation bar runs down the left of the screen on iPad and wider screens, and along the bottom on phones. **Calendar** is at the top; **Profile** is at the bottom. New areas of the app get their own icon in the bar as they're added.
+
+**Profile and settings.** Under Profile each person sets their name, colour and picture: a letter, an emoji, or a photo they upload. Photos are cropped and shrunk to 320 pixels on the device before upload and deleted when replaced or removed. That is how they appear on the calendar: their person is created or updated from it, and new to-dos and emailed events start with them picked. Profile is also where they find the household, invite and account options. Settings for the device are there too: light or dark, which view the calendar opens on, whether the week starts on Monday or Sunday, 12- or 24-hour time, and keeping the screen on for a wall display.
+
 **Email, always the person's choice.** There are three ways to add events from email, and nothing happens without the person choosing it:
 
 1. **Open an invite in the app.** In Mail, Gmail or Outlook, tap the invite (.ics) and choose Household (iOS "Open in", Android "Open with", or the share sheet for the installed website on Android). The app shows the events and the person ticks the ones to add.
