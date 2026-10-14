@@ -12,6 +12,17 @@
   "vars": {
     // The domain whose Email Routing catch-all sends mail to this Worker, e.g. "inbox.yourfamily.com".
     // Leave empty until you have one: forwarding addresses stay hidden and everything else works.
-    "EMAIL_DOMAIN": ""
-  }
+    "EMAIL_DOMAIN": "",
+    // Sign in with Google: OAuth client ids, comma separated, web client first, then iOS and Android.
+    "GOOGLE_CLIENT_IDS": "",
+    // Sign in with Apple: the Services ID (web) and the app's bundle id, comma separated.
+    "APPLE_CLIENT_IDS": "",
+    // Who sign-in codes come from. The Resend API key is a secret: `npx wrangler secret put RESEND_API_KEY`.
+    "MAIL_FROM": ""
+  },
+  // Keeps one device from hammering sign-in or the API. Limits are per key, per 60 seconds.
+  "ratelimits": [
+    { "name": "AUTH_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+    { "name": "API_LIMIT", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } }
+  ]
 }

@@ -1,5 +1,5 @@
 // Keeps the app opening when the connection drops. The calendar data always comes fresh from /api.
-const CACHE = "household-v2";
+const CACHE = "household-v3";
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg", "/apple-touch-icon.png"];
 self.addEventListener("install", (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener("activate", (e) => e.waitUntil(
