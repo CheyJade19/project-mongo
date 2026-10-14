@@ -59,7 +59,7 @@ npx wrangler deploy                           # prints your address, e.g. https:
 
 Or let GitHub do it: add the repository secrets `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` (GitHub › Settings › Secrets and variables › Actions). Every push to `main` then runs the tests and deploys, creating the database the first time. The token comes from Cloudflare › My Profile › API Tokens › Create Token › "Edit Cloudflare Workers" template, plus Account › D1 › Edit.
 
-If your database was created before accounts existed, run `scripts/reset-before-accounts.sql` once (it explains itself), then `npm run db:init`.
+If your database was created before accounts existed, the deploy workflow clears the old test data once (`scripts/reset-before-accounts.sql`). Deploying by hand, run that file once before `npm run db:init`.
 
 ### 2. Sign-in
 
