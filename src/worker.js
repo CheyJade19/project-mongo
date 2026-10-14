@@ -17,6 +17,17 @@ const COLS = new Set(["members", "events", "todos"]);
 const COL_LIMIT = { members: LIMITS.profilesPerHousehold, events: LIMITS.eventsPerHousehold, todos: LIMITS.todosPerHousehold };
 const COL_NAME = { members: "profiles", events: "events", todos: "to-dos" };
 
+// A profile photo: a small JPEG, PNG or WebP image sent as a data URL. Returns its type and bytes.
+export function decodePhoto(dataUrl) {
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ""));
+  if (!m) throw new HttpError(400, "Choose a photo (JPEG, PNG or WebP).");
+  const bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+  if (bytes.length > LIMITS.photoBytes) throw new HttpError(413, "That photo is too large.");
+  const magic = { "image/jpeg": [0xff, 0xd8, 0xff], "image/png": [0x89, 0x50, 0x4e, 0x47], "image/webp": [0x52, 0x49, 0x46, 0x46] }[m[1]];
+  if (!magic.every((b, i) => bytes[i] === b)) throw new HttpError(400, "That file isn't a photo the app can use.");
+  return { type: m[1], bytes };
+}
+
 const slug = (s) => (s || "me").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "").slice(0, 16) || "me";
 
 function inboxAddress(env, member, token) {
@@ -121,6 +132,13 @@ async function api(request, env, url) {
 
   if (path[0] === "config" && method === "GET") return json({ auth: authConfig(env), emailEnabled: !!env.EMAIL_DOMAIN });
 
+  // Photos load in <img> tags, which can't send a sign-in token, so the unguessable id is the key.
+  if (path[0] === "photo" && path[1] && !path[2] && method === "GET") {
+    const row = await env.DB.prepare("SELECT type, data FROM photos WHERE id = ?").bind(path[1]).first();
+    if (!row) return new Response("Not found", { status: 404, headers: CORS });
+    return new Response(new Uint8Array(row.data), { headers: { "content-type": row.type, "cache-control": "private, max-age=31536000, immutable", ...CORS } });
+  }
+
   const accountResponse = await authRoutes(request, env, path, ip);
   if (accountResponse) return accountResponse;
 
@@ -208,6 +226,23 @@ async function api(request, env, url) {
     throw new HttpError(405, "Not allowed");
   }
 
+  // Upload a profile photo for one person. The person's profile then points at it (field "photo");
+  // saving the profile with a different photo, or none, deletes the old one.
+  if (path[0] === "photos" && !path[1] && method === "POST") {
+    const body = await readJson(request);
+    const memberId = String(body.memberId || "");
+    const row = await env.DB.prepare("SELECT data FROM items WHERE household_id = ? AND col = 'members' AND id = ?").bind(h.id, memberId).first();
+    if (!row) throw new HttpError(404, "That person is no longer in this household.");
+    const { type, bytes } = decodePhoto(body.image);
+    const id = randomId(24);
+    // Keep only the photo the profile uses now, so uploads that were never saved don't pile up.
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM photos WHERE household_id = ? AND member_id = ? AND id != ?").bind(h.id, memberId, String(JSON.parse(row.data).photo || "")),
+      env.DB.prepare("INSERT INTO photos (id, household_id, member_id, type, data) VALUES (?, ?, ?, ?, ?)").bind(id, h.id, memberId, type, bytes),
+    ]);
+    return json({ id });
+  }
+
   const [col, id] = path;
   if (!COLS.has(col)) throw new HttpError(404, "Not found");
 
@@ -225,8 +260,12 @@ async function api(request, env, url) {
     if (!exists && (await countItems(env, h.id, col)) >= COL_LIMIT[col]) {
       throw new HttpError(403, `This household has reached its limit of ${COL_LIMIT[col]} ${COL_NAME[col]}.`);
     }
-    await putItem(env, h.id, col, id, await readJson(request));
-    if (col === "members") await ensureInbox(env, h.id, id);
+    const body = await readJson(request);
+    await putItem(env, h.id, col, id, body);
+    if (col === "members") {
+      await ensureInbox(env, h.id, id);
+      await env.DB.prepare("DELETE FROM photos WHERE household_id = ? AND member_id = ? AND id != ?").bind(h.id, id, String(body?.photo || "")).run();
+    }
     return json({ ok: true });
   }
   if (method === "DELETE" && id) {
@@ -235,6 +274,7 @@ async function api(request, env, url) {
       await env.DB.batch([
         env.DB.prepare("DELETE FROM inboxes WHERE household_id = ? AND member_id = ?").bind(h.id, id),
         env.DB.prepare("DELETE FROM inbound WHERE household_id = ? AND member_id = ?").bind(h.id, id),
+        env.DB.prepare("DELETE FROM photos WHERE household_id = ? AND member_id = ?").bind(h.id, id),
       ]);
     }
     return json({ ok: true });

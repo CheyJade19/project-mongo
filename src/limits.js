@@ -8,6 +8,7 @@ export const LIMITS = {
   pendingEmailsPerHousehold: 100,
   invitesOpenPerHousehold: 20,
   docBytes: 64 * 1024,
+  photoBytes: 200 * 1024,
   emailBytes: 10 * 1024 * 1024,
 };
 

@@ -262,6 +262,7 @@ export async function deleteHousehold(env, householdId) {
     env.DB.prepare("DELETE FROM inboxes WHERE household_id = ?").bind(householdId),
     env.DB.prepare("DELETE FROM inbound WHERE household_id = ?").bind(householdId),
     env.DB.prepare("DELETE FROM invites WHERE household_id = ?").bind(householdId),
+    env.DB.prepare("DELETE FROM photos WHERE household_id = ?").bind(householdId),
     env.DB.prepare("DELETE FROM memberships WHERE household_id = ?").bind(householdId),
     env.DB.prepare("DELETE FROM households WHERE id = ?").bind(householdId),
   ]);

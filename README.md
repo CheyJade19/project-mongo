@@ -35,7 +35,7 @@ test/              Unit tests (npm test)
 
 **Finding your way around.** A navigation bar runs down the left of the screen on iPad and wider screens, and along the bottom on phones. **Calendar** is at the top; **Profile** is at the bottom. New areas of the app get their own icon in the bar as they're added.
 
-**Profile and settings.** Under Profile each person sets their name, colour and picture (a letter or an emoji). That is how they appear on the calendar: their person is created or updated from it, and new to-dos and emailed events start with them picked. Profile is also where they find the household, invite and account options. Settings for the device are there too: light or dark, which view the calendar opens on, whether the week starts on Monday or Sunday, 12- or 24-hour time, and keeping the screen on for a wall display.
+**Profile and settings.** Under Profile each person sets their name, colour and picture: a letter, an emoji, or a photo they upload. Photos are cropped and shrunk to 320 pixels on the device before upload and deleted when replaced or removed. That is how they appear on the calendar: their person is created or updated from it, and new to-dos and emailed events start with them picked. Profile is also where they find the household, invite and account options. Settings for the device are there too: light or dark, which view the calendar opens on, whether the week starts on Monday or Sunday, 12- or 24-hour time, and keeping the screen on for a wall display.
 
 **Email, always the person's choice.** There are three ways to add events from email, and nothing happens without the person choosing it:
 

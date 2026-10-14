@@ -73,6 +73,9 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var
 .pchip[aria-pressed="false"]{opacity:.45;background:transparent}
 .av{width:30px;height:30px;border-radius:50%;display:inline-grid;place-items:center;color:var(--avink);font-weight:700;font-family:var(--display);font-size:14px;flex:none}
 .av.lg{width:40px;height:40px;font-size:18px}
+.av{overflow:hidden}
+.av:has(>img){padding:2px}
+.av>img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
 
 main{padding-block:16px 40px}
 .banner{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:10px 14px;margin-bottom:14px;font-size:14px;color:var(--muted)}
@@ -406,7 +409,9 @@ async function mountGoogleButton(){
 
 /* ---------- derived ---------- */
 const member=id=>data.members.find(m=>m.id===id);
-const avTxt=m=>esc(m.emoji||m.name.slice(0,1).toUpperCase());
+// What goes inside a person's round avatar: their photo, else their emoji, else their first letter.
+const photoUrl=id=>(SERVER||'')+'/api/photo/'+encodeURIComponent(id);
+const avTxt=m=>m.photo?`<img src="${esc(photoUrl(m.photo))}" alt="" loading="lazy">`:esc(m.emoji||m.name.slice(0,1).toUpperCase());
 // The signed-in person's own place on the calendar: the person linked to their account, or failing
 // that one with their email address. It's linked (or created) the first time they change their profile.
 const me=()=>{const u=account.user;if(!u||!u.id)return null;const em=(u.email||'').toLowerCase();
@@ -545,12 +550,14 @@ function renderProfile(){
   const provs=(u.providers||[]).map(p=>PROVIDER_NAME[p]||p);
   let out='<div class="pgrid">';
   // You: your name, colour and picture, which are also how you appear on the calendar.
-  const col=m?m.color:null,pic=m?m.emoji||'':'',letter=initial;
-  out+=`<section class="card"><div class="me"><span class="av" style="background:${col||'var(--accent)'}">${pic?esc(pic):letter}</span>
+  const col=m?m.color:null,pic=m?m.emoji||'':'',photo=m&&m.photo,letter=initial;
+  out+=`<section class="card"><div class="me"><span class="av" style="background:${col||'var(--accent)'}">${m?avTxt(m):letter}</span>
       <div style="min-width:0"><div class="nm">${esc(u.name||'Your profile')}</div><div class="note">${esc(u.email||'')}</div></div></div>
     <form class="field" data-form="my-name"><label for="pf-name">Your name</label><div class="inline"><input id="pf-name" type="text" value="${esc(u.name||'')}" autocomplete="name" placeholder="Your name"><button class="btn">Save</button></div></form>
     ${inside?`<div class="field"><span class="lbl">Colour</span><div class="swatches">${COLORS.map(c=>`<button type="button" class="sw" style="background:${c}" data-mycolor="${c}" aria-label="Colour ${c}" aria-pressed="${c===col}"></button>`).join('')}</div></div>
-      <div class="field"><span class="lbl">Picture</span><div class="emo">${EMOJI.map(e=>`<button type="button" data-emoji="${e}" aria-pressed="${m&&pic===e}" aria-label="${e?'Emoji '+e:'First letter of your name'}">${e||letter}</button>`).join('')}</div></div>
+      <div class="field"><span class="lbl">Picture</span><div class="emo">${EMOJI.map(e=>`<button type="button" data-emoji="${e}" aria-pressed="${!!m&&!photo&&pic===e}" aria-label="${e?'Emoji '+e:'First letter of your name'}">${e||letter}</button>`).join('')}</div>
+        <div class="actions" style="justify-content:flex-start"><label class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.8l1.4-2h4.6l1.4 2h1.8A2.5 2.5 0 0 1 20 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>${photo?'Change photo':'Upload a photo'}<input id="pf-photo" type="file" accept="image/*" hidden></label>${photo?'<button type="button" class="btn" data-act="pf-nophoto">Remove photo</button>':''}</div>
+        <span class="note">${photo?'Your photo is showing instead of an icon. Pick an icon to switch back.':'Pick an icon, or upload a photo to use instead.'}</span></div>
       <p class="note" style="margin:0">This is how you appear on the calendar for everyone in ${esc(h.name)}.</p>`:''}
     ${provs.length?`<p class="note" style="margin:0">You sign in with ${esc(provs.join(' or '))}.</p>`:''}</section>`;
   // Settings for this device.
@@ -575,6 +582,26 @@ function renderProfile(){
     </section>`;
   return out+'</div>';
 }
+// Profile photos are cropped square and shrunk to 320px on the device, so uploads stay small.
+function shrinkPhoto(file){
+  return new Promise((ok,no)=>{const img=new Image(),url=URL.createObjectURL(file);
+    img.onload=()=>{const s=Math.min(img.naturalWidth,img.naturalHeight),c=document.createElement('canvas'),x=c.getContext('2d');
+      c.width=c.height=Math.min(320,s);x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+      x.drawImage(img,(img.naturalWidth-s)/2,(img.naturalHeight-s)/2,s,s,0,0,c.width,c.height);URL.revokeObjectURL(url);ok(c.toDataURL('image/jpeg',.85))};
+    img.onerror=()=>{URL.revokeObjectURL(url);no({message:'That file couldn’t be opened as a photo. Try a different one.'})};
+    img.src=url});
+}
+async function uploadPhoto(file){
+  if(!file)return;if(!backend){toast('Still connecting. Try again in a moment.');return}
+  toast('Uploading your photo…');
+  try{
+    const image=await shrinkPhoto(file);
+    if(!me())await saveMe({});
+    const m=me();if(!m)return;
+    const r=await API.call('POST','photos',{memberId:m.id,image});
+    await saveMe({photo:r.id});
+  }catch(e){toast(e&&e.message||'That photo didn’t upload. Check your connection and try again.')}
+}
 // Returns true when the click was one of the profile screen's own controls.
 function profileClick(t){
   const d=t.dataset,m=me(),u=account.user||{};
@@ -583,7 +610,8 @@ function profileClick(t){
     else{settings[d.set]=d.val;saveSettings();if(d.set==='open'&&d.val!=='last')ui.view=d.val}
     render();return true}
   if(d.mycolor){saveMe({color:d.mycolor});return true}
-  if(d.emoji!==undefined){saveMe({emoji:d.emoji||null});return true}
+  if(d.emoji!==undefined){saveMe({emoji:d.emoji||null,photo:null});return true}
+  if(d.act==='pf-nophoto'){saveMe({photo:null});return true}
   const a=d.act;
   if(a==='pf-people'){peopleSheet();return true}
   if(a==='pf-invite'){shareSheet();return true}
@@ -645,7 +673,7 @@ $('#main').addEventListener('click',e=>{
   else if(t.dataset.act==='examples')loadExamples();
   else if(t.dataset.act==='clearex')clearExamples();
 });
-$('#main').addEventListener('change',e=>{if(e.target.id==='pf-wake')setWake(e.target.checked)});
+$('#main').addEventListener('change',e=>{if(e.target.id==='pf-wake')setWake(e.target.checked);if(e.target.id==='pf-photo')uploadPhoto(e.target.files[0])});
 $('#main').addEventListener('submit',async e=>{
   const form=e.target.closest('[data-form]');
   if(form){e.preventDefault();

@@ -92,3 +92,15 @@ CREATE TABLE IF NOT EXISTS inbound (
 );
 CREATE INDEX IF NOT EXISTS inbound_household ON inbound (household_id, received_at);
 CREATE INDEX IF NOT EXISTS inbound_member ON inbound (member_id, received_at);
+
+-- Profile photos, resized on the device before upload. Each is served at /api/photo/<id>, an
+-- unguessable address only the household's app knows. Replacing or removing a photo deletes it.
+CREATE TABLE IF NOT EXISTS photos (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL,
+  member_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  data BLOB NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS photos_member ON photos (household_id, member_id);
