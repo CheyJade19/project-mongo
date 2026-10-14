@@ -407,8 +407,16 @@ async function mountGoogleButton(){
 /* ---------- derived ---------- */
 const member=id=>data.members.find(m=>m.id===id);
 const avTxt=m=>esc(m.emoji||m.name.slice(0,1).toUpperCase());
-// The calendar profile the signed-in person said is them (Profile › You on the calendar).
-const me=()=>account.user&&account.user.id?data.members.find(m=>m.userId===account.user.id):null;
+// The signed-in person's own place on the calendar: the person linked to their account, or failing
+// that one with their email address. It's linked (or created) the first time they change their profile.
+const me=()=>{const u=account.user;if(!u||!u.id)return null;const em=(u.email||'').toLowerCase();
+  return data.members.find(m=>m.userId===u.id)||(em?data.members.find(m=>!m.userId&&(m.email||'').toLowerCase()===em):null)||null};
+function saveMe(changes){
+  const m=me(),u=account.user||{};
+  if(m)return act(b=>b.put('members',{...m,...changes,userId:u.id}));
+  const used=new Set(data.members.map(x=>x.color));
+  return act(b=>b.add('members',{name:u.name||(u.email||'Me').split('@')[0],color:COLORS.find(c=>!used.has(c))||COLORS[0],email:u.email||null,order:data.members.length,...changes,userId:u.id}));
+}
 const members=()=>[...data.members].sort((a,b)=>(a.order??0)-(b.order??0)||a.name.localeCompare(b.name));
 const shown=()=>members().filter(m=>!ui.hidden.has(m.id));
 const evVisible=e=>!e.memberIds||!e.memberIds.length||e.memberIds.some(id=>member(id)&&!ui.hidden.has(id));
@@ -536,24 +544,15 @@ function renderProfile(){
   const initial=esc((u.name||u.email||'?').slice(0,1).toUpperCase());
   const provs=(u.providers||[]).map(p=>PROVIDER_NAME[p]||p);
   let out='<div class="pgrid">';
-  // You: the account's name and how they sign in.
-  out+=`<section class="card"><div class="me"><span class="av" style="background:${m?m.color:'var(--accent)'}">${m?avTxt(m):initial}</span>
+  // You: your name, colour and picture, which are also how you appear on the calendar.
+  const col=m?m.color:null,pic=m?m.emoji||'':'',letter=initial;
+  out+=`<section class="card"><div class="me"><span class="av" style="background:${col||'var(--accent)'}">${pic?esc(pic):letter}</span>
       <div style="min-width:0"><div class="nm">${esc(u.name||'Your profile')}</div><div class="note">${esc(u.email||'')}</div></div></div>
-    <form class="field" data-form="my-name"><label for="pf-name">Your name</label><div class="inline"><input id="pf-name" type="text" value="${esc(u.name||'')}" autocomplete="name" placeholder="Your name"><button class="btn">Save</button></div>
-      <span class="note">The people you share a household with see this name.</span></form>
+    <form class="field" data-form="my-name"><label for="pf-name">Your name</label><div class="inline"><input id="pf-name" type="text" value="${esc(u.name||'')}" autocomplete="name" placeholder="Your name"><button class="btn">Save</button></div></form>
+    ${inside?`<div class="field"><span class="lbl">Colour</span><div class="swatches">${COLORS.map(c=>`<button type="button" class="sw" style="background:${c}" data-mycolor="${c}" aria-label="Colour ${c}" aria-pressed="${c===col}"></button>`).join('')}</div></div>
+      <div class="field"><span class="lbl">Picture</span><div class="emo">${EMOJI.map(e=>`<button type="button" data-emoji="${e}" aria-pressed="${m&&pic===e}" aria-label="${e?'Emoji '+e:'First letter of your name'}">${e||letter}</button>`).join('')}</div></div>
+      <p class="note" style="margin:0">This is how you appear on the calendar for everyone in ${esc(h.name)}.</p>`:''}
     ${provs.length?`<p class="note" style="margin:0">You sign in with ${esc(provs.join(' or '))}.</p>`:''}</section>`;
-  // Which calendar profile is theirs, and how it looks.
-  if(inside){
-    const ms=members();
-    out+=`<section class="card"><h2>You on the calendar</h2>
-      ${ms.length?`<div class="field"><span class="lbl">Which person is you?</span><div class="picks">${ms.map(x=>`<button type="button" class="pick" style="--c:${x.color}" data-me="${x.id}" aria-pressed="${x===m}"><span class="av" style="background:${x.color}">${avTxt(x)}</span>${esc(x.name)}</button>`).join('')}</div>
-        <span class="note">Your events and to-dos start with this person picked.</span></div>`:''}
-      ${m?`<form class="field" data-form="my-member"><label for="pf-mname">Name on the calendar</label><div class="inline"><input id="pf-mname" type="text" value="${esc(m.name)}" placeholder="Name"><button class="btn">Save</button></div></form>
-        <div class="field"><span class="lbl">Colour</span><div class="swatches">${COLORS.map(c=>`<button type="button" class="sw" style="background:${c}" data-mycolor="${c}" aria-label="Colour ${c}" aria-pressed="${c===m.color}"></button>`).join('')}</div></div>
-        <div class="field"><span class="lbl">Picture</span><div class="emo">${EMOJI.map(e=>`<button type="button" data-emoji="${e}" aria-pressed="${(m.emoji||'')===e}" aria-label="${e?'Emoji '+e:'First letter of your name'}">${e||esc(m.name.slice(0,1).toUpperCase())}</button>`).join('')}</div></div>`
-      :`<div class="actions" style="justify-content:flex-start"><button type="button" class="btn primary" data-act="add-me">Add me to the calendar</button></div>`}
-    </section>`;
-  }
   // Settings for this device.
   const wakeOk='wakeLock' in navigator;
   out+=`<section class="card"><h2>Settings</h2>
@@ -583,13 +582,9 @@ function profileClick(t){
     if(d.set==='theme')setTheme(d.val);
     else{settings[d.set]=d.val;saveSettings();if(d.set==='open'&&d.val!=='last')ui.view=d.val}
     render();return true}
-  if(d.me){const pick=member(d.me);if(!pick||pick===m)return true;
-    act(async b=>{if(m)await b.put('members',{...m,userId:null});await b.put('members',{...pick,userId:u.id})});return true}
-  if(d.mycolor&&m){act(b=>b.put('members',{...m,color:d.mycolor}));return true}
-  if(d.emoji!==undefined&&m){act(b=>b.put('members',{...m,emoji:d.emoji||null}));return true}
+  if(d.mycolor){saveMe({color:d.mycolor});return true}
+  if(d.emoji!==undefined){saveMe({emoji:d.emoji||null});return true}
   const a=d.act;
-  if(a==='add-me'){const used=new Set(data.members.map(x=>x.color));
-    act(b=>b.add('members',{name:(u.name||u.email||'Me').split(/[ @]/)[0],color:COLORS.find(c=>!used.has(c))||COLORS[0],email:u.email||null,order:data.members.length,userId:u.id}));return true}
   if(a==='pf-people'){peopleSheet();return true}
   if(a==='pf-invite'){shareSheet();return true}
   if(a==='pf-household'){accountSheet();return true}
@@ -635,7 +630,7 @@ $('#addTodo').onclick=()=>data.members.length?todoSheet({}):peopleSheet();
 $('#menuBtn').onclick=()=>peopleSheet();
 $('#people').onclick=e=>{const b=e.target.closest('[data-toggle]');if(!b)return;const id=b.dataset.toggle;ui.hidden.has(id)?ui.hidden.delete(id):ui.hidden.add(id);render()};
 $('#main').addEventListener('click',e=>{
-  const t=e.target.closest('[data-ev],[data-check],[data-todo],[data-goday],[data-newev],[data-act],[data-hh],[data-me],[data-mycolor],[data-emoji],[data-set]');if(!t)return;
+  const t=e.target.closest('[data-ev],[data-check],[data-todo],[data-goday],[data-newev],[data-act],[data-hh],[data-mycolor],[data-emoji],[data-set]');if(!t)return;
   if(ui.screen==='profile'&&profileClick(t))return;
   if(t.dataset.hh){pickHousehold(t.dataset.hh);render();refresh();return}
   if(t.dataset.act==='apple'||t.dataset.act==='google'){providerSignIn(t.dataset.act);return}
@@ -671,10 +666,8 @@ $('#main').addEventListener('submit',async e=>{
         const r=await API.call('POST','invites/accept',{code});await loadAccount();pickHousehold(r.household.id);render();await refresh();toast('You\u2019ve joined '+r.household.name+'.');
       }else if(form.dataset.form==='my-name'){
         const name=$('#pf-name').value.trim();if(!name){toast('Type your name first.');return}
-        await API.call('PATCH','me',{name});await loadAccount();render();toast('Name saved.');
-      }else if(form.dataset.form==='my-member'){
-        const m=me(),name=$('#pf-mname').value.trim();if(!m)return;if(!name){toast('Type a name first.');return}
-        await act(b=>b.put('members',{...m,name}));toast('Saved.');
+        await API.call('PATCH','me',{name});await loadAccount();
+        if(API.hid&&backend)await saveMe({name});render();toast('Name saved.');
       }
     }catch(err){toast(err&&err.message||'That didn\u2019t work. Check your connection and try again.')}
     finally{if(btn&&btn.isConnected)btn.disabled=false}
