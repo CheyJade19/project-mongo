@@ -188,6 +188,13 @@ main{padding-block:16px 40px}
 body.nokey header .nav,body.nokey header .seg,body.nokey #people{display:none}
 .badge{background:var(--accent);color:var(--accent-ink);border-radius:999px;font-size:12px;font-weight:700;min-width:20px;height:20px;padding:0 6px;display:inline-grid;place-items:center;font-variant-numeric:tabular-nums}
 details summary{list-style:none}
+.signin{display:flex;flex-direction:column;gap:10px;align-items:stretch}
+.btn.sso{justify-content:center;min-height:46px;font-weight:600;font-size:16px}
+.btn.sso svg{width:20px;height:20px}
+.gbtn{display:flex;justify-content:center;min-height:44px}
+.note a{color:inherit}
+.linkish{border:0;background:none;padding:0;color:inherit;text-decoration:underline;cursor:pointer;font-size:inherit}
+.btn:disabled{opacity:.6}
 </style>
 </head>
 <body>
@@ -241,30 +248,37 @@ let data={members:[],events:[],todos:[]};
 const ui={view:'day',cursor:todayStr(),hidden:new Set(),mode:'connecting'};
 try{const v=localStorage.getItem(KEY+':view');if(v)ui.view=v}catch(e){}
 
-/* ---------- storage: the household's own server ---------- */
-const KEYSTORE=KEY+':key';
+/* ---------- storage: the shared server, signed in per person ---------- */
 const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+const PLATFORM=window.Capacitor&&window.Capacitor.getPlatform?window.Capacitor.getPlatform():'web';
 const SERVER=String(window.HOUSEHOLD_SERVER||'').replace(/\/$/,'');
-const API={key:null,
+const store={get:k=>{try{return localStorage.getItem(KEY+':'+k)}catch(e){return null}},
+  set:(k,v)=>{try{v==null?localStorage.removeItem(KEY+':'+k):localStorage.setItem(KEY+':'+k,v)}catch(e){}}};
+const API={session:store.get('session'),hid:store.get('hh'),
   async call(method,path,body){
-    const r=await fetch(SERVER+'/api/'+path,{method,headers:{'content-type':'application/json',...(this.key?{authorization:'Bearer '+this.key}:{})},body:body?JSON.stringify(body):undefined});
+    const h={'content-type':'application/json'};if(this.session)h.authorization='Bearer '+this.session;if(this.hid)h['x-household']=this.hid;
+    const r=await fetch(SERVER+'/api/'+path,{method,headers:h,body:body?JSON.stringify(body):undefined});
     const j=await r.json().catch(()=>({}));if(!r.ok)throw{status:r.status,message:j.error};return j}};
-try{API.key=localStorage.getItem(KEYSTORE)}catch(e){}
 let meta={household:null,inbound:[]};
+let account={user:null,households:[],config:null};
 let backend=null;
 const strip=o=>{const c={...o};delete c.id;delete c.inbox;return c};
 let busy=0;
 async function refresh(){
-  if(!API.key||busy)return;
+  if(!API.session||!API.hid||busy)return;
   try{const s=await API.call('GET','state');if(busy)return;
     meta={household:s.household,inbound:s.inbound||[]};
     data={members:s.members.map(normM),events:s.events,todos:s.todos};ui.mode='shared';backend=server}
-  catch(e){if(e.status===401){forget();toast('This device was signed out of the household.')}else ui.mode='offline'}
+  catch(e){
+    if(e.status===401){signedOut();toast('You’ve been signed out. Sign in again to carry on.')}
+    else if(e.status===403||e.status===400){pickHousehold(null);await loadAccount();toast(e.message||'You’re no longer part of that household.')}
+    else ui.mode='offline'}
   render();
 }
 const server={
   async add(col,o){const tmp='tmp-'+uid();data[col].push({...o,id:tmp});render();busy++;
-    try{const r=await API.call('POST',col,o);const x=data[col].find(x=>x.id===tmp);if(x)x.id=r.id;return{id:r.id}}finally{busy--}},
+    try{const r=await API.call('POST',col,o);const x=data[col].find(x=>x.id===tmp);if(x)x.id=r.id;return{id:r.id}}
+    catch(e){data[col]=data[col].filter(x=>x.id!==tmp);throw e}finally{busy--}},
   async put(col,o){const i=data[col].findIndex(x=>x.id===o.id);if(i>=0)data[col][i]=o;render();busy++;
     try{await API.call('PUT',col+'/'+o.id,strip(o))}finally{busy--}},
   async remove(col,id){data[col]=data[col].filter(x=>x.id!==id);render();busy++;
@@ -272,14 +286,56 @@ const server={
 };
 async function act(fn){
   if(!backend){toast('Still connecting. Try again in a moment.');return}
-  try{await fn(backend)}catch(e){toast(e&&e.message||'That didn\u2019t save. Check your connection and try again.')}
+  try{await fn(backend)}catch(e){toast(e&&e.message||'That didn’t save. Check your connection and try again.')}
   refresh();
 }
-function saveKey(k){API.key=k;try{localStorage.setItem(KEYSTORE,k)}catch(e){}}
-function forget(){API.key=null;backend=null;data={members:[],events:[],todos:[]};try{localStorage.removeItem(KEYSTORE)}catch(e){}}
-const inviteLink=()=>(SERVER||location.origin)+'/?join='+encodeURIComponent(API.key||'');
-function readInvite(text){const m=String(text||'').match(/join=([A-Za-z0-9]+)/);return m?m[1]:(/^[A-Za-z0-9]{20,}$/.test(String(text).trim())?String(text).trim():null)}
+function pickHousehold(id){API.hid=id;store.set('hh',id);backend=null;data={members:[],events:[],todos:[]};meta={household:null,inbound:[]};ui.mode=id?'connecting':'nohousehold'}
+function signedOut(){API.session=null;store.set('session',null);account.user=null;account.households=[];pickHousehold(null);ui.mode='signedout'}
 async function copy(text,btn){try{await navigator.clipboard.writeText(text);if(btn){const o=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=o,1500)}}catch(e){toast('Press and hold the text to copy it.')}}
+
+/* ---------- accounts: Sign in with Apple, Google, or a code by email ---------- */
+// An invite opened before signing in waits here until the person has an account.
+const inviteFrom=text=>{const m=String(text||'').match(/[?&]invite=([A-Za-z0-9-]+)/i);return m?m[1].toUpperCase().replace(/[^A-Z0-9]/g,''):null};
+const inviteLink=code=>(SERVER||location.origin)+'/?invite='+code;
+async function loadAccount(){
+  if(!API.session){ui.mode='signedout';return}
+  try{const me=await API.call('GET','me');account.user=me.user;account.households=me.households;
+    const pending=store.get('invite');
+    if(pending){store.set('invite',null);try{const r=await API.call('POST','invites/accept',{code:pending});await loadAccount();pickHousehold(r.household.id);toast('You’ve joined '+r.household.name+'.');return}catch(e){toast(e.message||'That invite didn’t work.')}}
+    if(!account.households.some(h=>h.id===API.hid))pickHousehold(account.households.length===1?account.households[0].id:null);
+    else if(ui.mode==='signedout'||ui.mode==='nohousehold')ui.mode='connecting';
+  }catch(e){if(e.status===401)signedOut();else ui.mode='offline'}
+}
+async function signedIn(session){API.session=session;store.set('session',session);ui.mode='connecting';await loadAccount();render();await refresh()}
+async function loadConfig(){if(account.config)return account.config;try{account.config=(await API.call('GET','config')).auth}catch(e){account.config={google:null,apple:null,email:false}}return account.config}
+const loadScript=src=>new Promise((ok,no)=>{if(document.querySelector(`script[src="${src}"]`))return ok();const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=no;document.head.appendChild(s)});
+async function providerSignIn(provider){
+  const cfg=account.config;
+  try{
+    let idToken,name=null;
+    if(NATIVE){
+      const SL=window.Capacitor.Plugins.SocialLogin;
+      if(!SL){toast('This sign-in option isn’t available in this version of the app.');return}
+      await SL.initialize(provider==='google'?{google:{webClientId:cfg.google.web,iOSClientId:cfg.google.ios||undefined}}:{apple:{clientId:cfg.apple.web,redirectUrl:''}});
+      const r=await SL.login(provider==='google'?{provider:'google',options:{scopes:['email','profile']}}:{provider:'apple',options:{scopes:['name','email']}});
+      idToken=r.result.idToken;const p=r.result.profile||{};name=[p.givenName,p.familyName].filter(Boolean).join(' ')||p.name||null;
+    }else if(provider==='apple'){
+      await loadScript('https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js');
+      AppleID.auth.init({clientId:cfg.apple.web,scope:'name email',redirectURI:location.origin+'/',usePopup:true});
+      const r=await AppleID.auth.signIn();idToken=r.authorization.id_token;const n=r.user&&r.user.name;name=n?[n.firstName,n.lastName].filter(Boolean).join(' '):null;
+    }
+    if(!idToken)throw{};
+    const s=await API.call('POST','auth/'+provider,{idToken,name});await signedIn(s.session);
+  }catch(e){if(e&&(e.code==='USER_CANCELLED'||e.error==='popup_closed_by_user'))return;toast(e&&e.message||'Sign-in didn’t go through. Try again.')}
+}
+// Google on the web draws its own button; it calls back with an ID token.
+async function mountGoogleButton(){
+  const el=document.getElementById('g-btn');const cfg=account.config;if(!el||NATIVE||!cfg.google)return;
+  try{await loadScript('https://accounts.google.com/gsi/client');
+    google.accounts.id.initialize({client_id:cfg.google.web,callback:async r=>{try{const s=await API.call('POST','auth/google',{idToken:r.credential});await signedIn(s.session)}catch(e){toast(e.message||'Sign-in didn’t go through. Try again.')}}});
+    google.accounts.id.renderButton(el,{theme:(document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'))==='dark'?'filled_black':'outline',size:'large',shape:'pill',text:'continue_with',width:Math.min(320,el.clientWidth||320)});
+  }catch(e){el.hidden=true}
+}
 
 /* ---------- derived ---------- */
 const member=id=>data.members.find(m=>m.id===id);
@@ -319,7 +375,7 @@ function renderHeader(){
     t=`${a.toLocaleDateString([],{day:'numeric',month:'short'})} – ${b.toLocaleDateString([],{day:'numeric',month:'short'})}`}
   else t=c.toLocaleDateString([],{month:'long',year:'numeric'});
   $('#title').textContent=t;
-  $('#sync').innerHTML=ui.mode==='shared'?`<i class="dot-sync ok"></i> ${esc(meta.household?.name||'Shared with your household')}`:ui.mode==='nokey'?'':ui.mode==='offline'?'<i class="dot-sync"></i> Reconnecting…':'<i class="dot-sync"></i> Connecting…';
+  $('#sync').innerHTML=ui.mode==='shared'?`<i class="dot-sync ok"></i> ${esc(meta.household?.name||'Shared with your household')}`:!(API.session&&API.hid)?'':ui.mode==='offline'?'<i class="dot-sync"></i> Reconnecting…':'<i class="dot-sync"></i> Connecting…';
   document.querySelectorAll('.seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===ui.view));
   $('#people').innerHTML=members().map(m=>`<button class="pchip" data-toggle="${m.id}" aria-pressed="${!ui.hidden.has(m.id)}"><span class="av" style="background:${m.color}">${esc(m.name.slice(0,1).toUpperCase())}</span>${esc(m.name)}</button>`).join('');
   $('#people').hidden=!data.members.length;
@@ -362,12 +418,28 @@ function renderMonth(){
     h+=`<button class="mcell ${dt.getMonth()!==c.getMonth()?'out':''} ${d===t?'is-today':''}" data-goday="${d}"><span class="n">${dt.getDate()}</span>${evs.slice(0,3).map(e=>`<span class="pill" style="--c:${evColor(e)}">${e.allDay?'':esc(fmtTime(e.start))+' '}${esc(e.title)}</span>`).join('')}${evs.length>3?`<span class="more">+${evs.length-3} more</span>`:''}<span class="mdots">${evs.slice(0,6).map(e=>`<i style="background:${evColor(e)}"></i>`).join('')}</span></button>`}
   return h+'</div>';
 }
-function renderJoin(){
+const APPLE_ICON='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8 0 0-2.5-1-2.5-3.9zM14 5.5c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1.1.1 2.1-.6 2.8-1.4z"/></svg>';
+const G_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.5-.2-2.2H12v4.2h5.9c-.3 1.4-1 2.5-2.2 3.3v2.7h3.6c2-1.9 3.2-4.7 3.2-8z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.7c-1 .7-2.2 1-3.7 1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.8C3.9 20.5 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.8 14.1c-.2-.7-.4-1.4-.4-2.1s.1-1.4.4-2.1V7.1H2.1C1.4 8.6 1 10.2 1 12s.4 3.4 1.1 4.9l3.7-2.8z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2C17.5 2.1 15 1 12 1 7.7 1 3.9 3.5 2.1 7.1l3.7 2.8c.9-2.6 3.3-4.5 6.2-4.5z"/></svg>';
+const PRIVACY_URL=(SERVER||'')+'/privacy.html';
+function renderSignIn(){
+  const c=account.config;
+  if(!c)return'<div class="welcome"><h2>Your household calendar</h2><p>Connecting…</p></div>';
+  const apple=c.apple&&PLATFORM!=='android',google=!!c.google,email=c.email,step=ui.emailStep;
   return`<div class="welcome"><h2>Your household calendar</h2>
-  <p>One calendar for everyone at home. Each person gets their own colour and their own column of to-dos, and can add events from any email they choose.</p>
+  <p>${store.get('invite')?'You’ve been invited to a household. Sign in or create an account to join it.':'One calendar for everyone at home. Each person gets their own colour and their own column of to-dos. Sign in to start or join a household.'}</p>
+  ${step?'':`<div class="signin">${apple?`<button class="btn sso" data-act="apple">${APPLE_ICON}Continue with Apple</button>`:''}${google?(NATIVE?`<button class="btn sso" data-act="google">${G_ICON}Continue with Google</button>`:'<div id="g-btn" class="gbtn"></div>'):''}</div>`}
+  ${email?(step?`<form class="field" data-form="email-verify"><label for="si-code">Enter the 6-digit code we sent to ${esc(step)}</label><input id="si-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123456"><div class="row"><button class="btn primary">Sign in</button><button type="button" class="btn ghost" data-act="email-back">Use a different email</button></div></form>`
+    :`<form class="field" data-form="email-start"><label for="si-email">${apple||google?'Or use your email address':'Sign in with your email address'}</label><input id="si-email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com"><div class="row"><button class="btn">Email me a code</button></div></form>`):''}
+  ${!apple&&!google&&!email?'<p class="note">Sign-in isn’t set up on this server yet.</p>':''}
+  <p class="note">We never read your inbox and there’s no AI anywhere in the app. <a href="${esc(PRIVACY_URL)}" target="_blank" rel="noopener">Privacy policy</a></p></div>`;
+}
+function renderJoin(){
+  const hs=account.households,u=account.user||{};
+  return`<div class="welcome"><h2>${u.name?'Hi '+esc(u.name.split(' ')[0]):'Welcome'}</h2>
+  ${hs.length?`<div class="field"><span class="lbl">Your households</span><div class="plist">${hs.map(h=>`<button type="button" class="prow" data-hh="${esc(h.id)}" style="text-align:left;width:100%;background:transparent"><span class="nm">${esc(h.name)}<br><span class="note">${h.role==='owner'?'Owner':'Member'}</span></span></button>`).join('')}</div></div>`:'<p>Start a household for your family, or join one with the invite someone sent you.</p>'}
   <form class="field" data-form="create"><label for="hh-name">Start a new household</label><input id="hh-name" type="text" placeholder="The Parkers" autocomplete="off"><div class="row"><button class="btn primary">Create household</button></div></form>
-  <form class="field" data-form="join"><label for="hh-join">Or join one: paste the invite link someone sent you</label><input id="hh-join" type="text" placeholder="https://…/?join=…" autocomplete="off"><div class="row"><button class="btn">Join household</button></div></form>
-  <p class="note">On iPhone or iPad, tap Share then Add to Home Screen to use it like an app. If you added it before joining, paste your invite link here once.</p></div>`;
+  <form class="field" data-form="join"><label for="hh-join">Or join one with an invite code or link</label><input id="hh-join" type="text" placeholder="ABCD-EFGH" autocomplete="off" autocapitalize="characters"><div class="row"><button class="btn">Join household</button></div></form>
+  <p class="note">Signed in${u.email?' as '+esc(u.email):''}. <button type="button" class="linkish" data-act="signout">Sign out</button> · <a href="${esc(PRIVACY_URL)}" target="_blank" rel="noopener">Privacy</a></p></div>`;
 }
 function renderWelcome(){
   return`<div class="welcome"><h2>Set up your household</h2>
@@ -376,15 +448,18 @@ function renderWelcome(){
   <p class="note">${ui.mode==='shared'?'Changes are shared with everyone in your household.':'Connecting to your household calendar…'}</p></div>`;
 }
 function render(){
-  document.body.classList.toggle('nokey',!API.key);
+  const inside=!!(API.session&&API.hid);
+  document.body.classList.toggle('nokey',!inside);
   renderHeader();renderClock();
   let h='';
   if(data.members.some(m=>m.example))h+=`<div class="banner"><b>Example family.</b> These people and events are made up so you can see how it works.<button class="btn" data-act="clearex">Clear examples</button></div>`;
-  if(!API.key)h=renderJoin();
+  if(!API.session)h=renderSignIn();
+  else if(!API.hid)h=renderJoin();
   else if(!data.members.length)h+=renderWelcome();
   else h+=ui.view==='day'?renderDay():ui.view==='week'?renderWeek():renderMonth();
   const main=$('#main'),focused=document.activeElement&&document.activeElement.id,val=focused&&document.activeElement.value;
   main.innerHTML=h;
+  if(!API.session)mountGoogleButton();
   if(focused&&focused.startsWith('q-')){const el=document.getElementById(focused);if(el){el.value=val||'';el.focus()}}
 }
 setInterval(renderClock,15000);
@@ -404,7 +479,11 @@ $('#addTodo').onclick=()=>data.members.length?todoSheet({}):peopleSheet();
 $('#menuBtn').onclick=()=>peopleSheet();
 $('#people').onclick=e=>{const b=e.target.closest('[data-toggle]');if(!b)return;const id=b.dataset.toggle;ui.hidden.has(id)?ui.hidden.delete(id):ui.hidden.add(id);render()};
 $('#main').addEventListener('click',e=>{
-  const t=e.target.closest('[data-ev],[data-check],[data-todo],[data-goday],[data-newev],[data-act]');if(!t)return;
+  const t=e.target.closest('[data-ev],[data-check],[data-todo],[data-goday],[data-newev],[data-act],[data-hh]');if(!t)return;
+  if(t.dataset.hh){pickHousehold(t.dataset.hh);render();refresh();return}
+  if(t.dataset.act==='apple'||t.dataset.act==='google'){providerSignIn(t.dataset.act);return}
+  if(t.dataset.act==='email-back'){ui.emailStep=null;render();return}
+  if(t.dataset.act==='signout'){API.call('POST','signout').catch(()=>{});signedOut();render();return}
   if(t.dataset.ev)eventSheet(data.events.find(x=>x.id===t.dataset.ev));
   else if(t.dataset.check){const td=data.todos.find(x=>x.id===t.dataset.check);if(td)toggleTodo(td,ui.cursor)}
   else if(t.dataset.todo)todoSheet(data.todos.find(x=>x.id===t.dataset.todo));
@@ -417,14 +496,24 @@ $('#main').addEventListener('click',e=>{
 $('#main').addEventListener('submit',async e=>{
   const form=e.target.closest('[data-form]');
   if(form){e.preventDefault();
-    if(form.dataset.form==='create'){
-      const name=$('#hh-name').value.trim()||'Our household';
-      try{const r=await API.call('POST','households',{name,tz:Intl.DateTimeFormat().resolvedOptions().timeZone});saveKey(r.key);ui.mode='connecting';await refresh();peopleSheet()}
-      catch(err){toast(err&&err.message||'Couldn\u2019t create the household. Check your connection.')}
-    }else{
-      const k=readInvite($('#hh-join').value);if(!k){toast('That doesn\u2019t look like an invite link.');return}
-      saveKey(k);ui.mode='connecting';render();await refresh();if(API.key)toast('You\u2019ve joined the household.');
-    }
+    const btn=form.querySelector('button:not([type=button])');if(btn)btn.disabled=true;
+    try{
+      if(form.dataset.form==='email-start'){
+        const email=$('#si-email').value.trim();if(!email){toast('Type your email address first.');return}
+        const r=await API.call('POST','auth/email/start',{email});ui.emailStep=email;render();
+        if(r.devCode){$('#si-code').value=r.devCode;toast('Development mode: code filled in.')}else toast('Code sent. Check your email.');
+      }else if(form.dataset.form==='email-verify'){
+        const r=await API.call('POST','auth/email/verify',{email:ui.emailStep,code:$('#si-code').value});ui.emailStep=null;await signedIn(r.session);
+      }else if(form.dataset.form==='create'){
+        const name=$('#hh-name').value.trim()||'Our household';
+        const r=await API.call('POST','households',{name,tz:Intl.DateTimeFormat().resolvedOptions().timeZone});
+        await loadAccount();pickHousehold(r.household.id);render();await refresh();peopleSheet();
+      }else if(form.dataset.form==='join'){
+        const raw=$('#hh-join').value,code=inviteFrom(raw)||raw.toUpperCase().replace(/[^A-Z0-9]/g,'');if(code.length<8){toast('That doesn\u2019t look like an invite code.');return}
+        const r=await API.call('POST','invites/accept',{code});await loadAccount();pickHousehold(r.household.id);render();await refresh();toast('You\u2019ve joined '+r.household.name+'.');
+      }
+    }catch(err){toast(err&&err.message||'That didn\u2019t work. Check your connection and try again.')}
+    finally{if(btn&&btn.isConnected)btn.disabled=false}
     return}
   const f=e.target.closest('[data-quick]');if(!f)return;e.preventDefault();
   const inp=f.querySelector('input'),title=inp.value.trim();if(!title)return;inp.value='';
@@ -513,7 +602,7 @@ function peopleSheet(){
       <div class="swatches">${COLORS.map(c=>`<button type="button" class="sw" style="background:${c}" data-sw="${c}" aria-label="Colour ${c}" aria-pressed="${c===next}"></button>`).join('')}</div></div>
     <div class="actions"><button type="button" class="btn danger" id="pp-del" hidden>Remove</button><span class="spacer"></span><button type="button" class="btn" id="pp-import">Import a calendar file</button><button type="button" class="btn ghost" data-close>Done</button><button class="btn primary" id="pp-save">Add person</button></div>
     <label class="toggle"><input id="pp-wake" type="checkbox"> Keep this screen on (for a wall or kitchen display)</label>
-    <div class="field"><span class="lbl">Invite your household</span><p class="note" style="margin:0">Send this link to everyone who should see and edit the calendar. Anyone with it can join, so only share it with your household.</p><div class="addr" id="pp-link">${esc(inviteLink())}</div><div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="pp-copy">Copy invite link</button><button type="button" class="btn ghost danger" id="pp-leave">Sign this device out</button></div></div>`,
+    <div class="field"><span class="lbl">Sharing and account</span><p class="note" style="margin:0">Invite the people you live with, switch household, sign out or delete your data.</p><div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="pp-share">Invite people</button><button type="button" class="btn" id="pp-account">Account and privacy</button></div></div>`,
   (f,close)=>{
     let editing=null,color=next,armed=false;
     const sws=f.querySelectorAll('[data-sw]');
@@ -529,8 +618,8 @@ function peopleSheet(){
         await b.remove('members',id)})};
     f.querySelector('#pp-import').onclick=()=>{close();importSheet()};
     f.querySelectorAll('[data-fwd]').forEach(b=>b.onclick=()=>{close();forwardSheet(member(b.dataset.fwd))});
-    f.querySelector('#pp-copy').onclick=e=>copy(inviteLink(),e.target);
-    let leaveArmed=false;f.querySelector('#pp-leave').onclick=e=>{if(!leaveArmed){leaveArmed=true;e.target.textContent='Tap again: you\u2019ll need the invite link to come back';return}close();forget();render()};
+    f.querySelector('#pp-share').onclick=()=>{close();shareSheet()};
+    f.querySelector('#pp-account').onclick=()=>{close();accountSheet()};
     const wk=f.querySelector('#pp-wake');wk.checked=!!wakeLock;
     wk.onchange=async()=>{if(wk.checked){try{wakeLock=await navigator.wakeLock.request('screen');wakeLock.addEventListener('release',()=>wakeLock=null)}catch(e){wk.checked=false;toast('This device won’t let the page keep the screen on.')}}else if(wakeLock){wakeLock.release();wakeLock=null}};
     f.onsubmit=x=>{x.preventDefault();const name=f.querySelector('#pp-name').value.trim(),email=f.querySelector('#pp-email').value.trim()||null;
@@ -539,6 +628,55 @@ function peopleSheet(){
       else act(b=>b.add('members',{name,color,email,order:ms.length}));
       close();setTimeout(peopleSheet,250);
     };
+  });
+}
+// Who can open this household, and invites for new people. Invites expire after 7 days or 10 uses.
+async function shareSheet(){
+  let people=[];try{people=(await API.call('GET','household/people')).people}catch(e){toast(e.message||'Couldn’t load that. Check your connection.');return}
+  const owner=meta.household?.role==='owner';
+  openSheet(`<h2>Invite people</h2>
+    <p class="note" style="margin:0">Everyone here can see and change the calendar. They sign in on their own phone or tablet with Apple, Google or their email.</p>
+    <div class="field"><span class="lbl">People with access</span><div class="plist">${people.map(p=>`<div class="prow"><span class="nm" style="white-space:normal">${esc(p.name||p.email||'Someone')}${p.you?' (you)':''}<br><span class="note">${p.role==='owner'?'Owner':'Member'}${p.email&&p.name?' · '+esc(p.email):''}</span></span>${owner&&!p.you?`<button type="button" class="btn ghost danger" data-rm="${esc(p.id)}">Remove</button>`:''}</div>`).join('')}</div></div>
+    <div class="field" id="sh-invite"><span class="lbl">Invite someone new</span><p class="note" style="margin:0">Create a code, then send it or the link to them. Only share it with your household.</p><div class="actions" style="justify-content:flex-start"><button type="button" class="btn primary" id="sh-new">Create an invite</button></div></div>
+    <div class="actions"><span class="spacer"></span><button type="button" class="btn ghost" data-close>Done</button></div>`,
+  (f,close)=>{
+    f.querySelectorAll('[data-rm]').forEach(b=>{let armed=false;b.onclick=async()=>{
+      if(!armed){armed=true;b.textContent='Tap again to remove';return}
+      try{await API.call('DELETE','household/people/'+b.dataset.rm);close();shareSheet();toast('Removed. They can no longer open this household.')}catch(e){toast(e.message||'Couldn’t remove them.')}}});
+    f.querySelector('#sh-new').onclick=async()=>{
+      try{const r=await API.call('POST','household/invites');const link=inviteLink(r.code),pretty=r.code.slice(0,4)+'-'+r.code.slice(4);
+        const until=new Date(r.expiresAt.replace(' ','T')+'Z').toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'});
+        f.querySelector('#sh-invite').innerHTML=`<span class="lbl">Invite code</span><div class="addr" style="font-size:22px;letter-spacing:.08em;text-align:center">${pretty}</div><div class="addr">${esc(link)}</div><p class="note" style="margin:0">Works until ${esc(until)} for up to 10 people.</p><div class="actions" style="justify-content:flex-start">${navigator.share?'<button type="button" class="btn primary" id="sh-share">Send invite</button>':''}<button type="button" class="btn" id="sh-copy">Copy link</button></div>`;
+        const msg=`Join ${meta.household?.name||'our household'} on the household calendar: ${link} (code ${pretty})`;
+        f.querySelector('#sh-copy').onclick=e=>copy(link,e.target);
+        const s=f.querySelector('#sh-share');if(s)s.onclick=()=>navigator.share({text:msg}).catch(()=>{});
+      }catch(e){toast(e.message||'Couldn’t create an invite.')}};
+  });
+}
+// Switch household, leave or delete it, sign out, or delete the account and everything it owns.
+function accountSheet(){
+  const h=meta.household||{},owner=h.role==='owner',u=account.user||{},others=account.households.filter(x=>x.id!==API.hid);
+  openSheet(`<h2>Account and privacy</h2>
+    <div class="field"><label for="ac-hh" class="lbl">Household name</label><input id="ac-hh" type="text" value="${esc(h.name||'')}"></div>
+    ${others.length?`<div class="field"><span class="lbl">Switch household</span><div class="plist">${others.map(x=>`<button type="button" class="prow" data-hh="${esc(x.id)}" style="text-align:left;width:100%;background:transparent"><span class="nm">${esc(x.name)}</span></button>`).join('')}</div></div>`:''}
+    <div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="ac-more">Start or join another household</button></div>
+    <div class="field"><span class="lbl">Leave or delete</span><p class="note" style="margin:0">${owner?'Deleting the household removes every profile, event, to-do and forwarded email in it, for everyone. It can’t be undone.':'Leaving removes your access. The household’s calendar stays for everyone else.'}</p>
+      <div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="ac-leave">Leave household</button>${owner?'<button type="button" class="btn danger" id="ac-delhh">Delete household</button>':''}</div></div>
+    <div class="field"><span class="lbl">Your account</span><p class="note" style="margin:0">Signed in${u.email?' as '+esc(u.email):''}${u.name?' ('+esc(u.name)+')':''}. Deleting your account removes your sign-in and your access to every household. Households only you use are deleted with everything in them; shared ones pass to the next person.</p>
+      <div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="ac-out">Sign out</button><button type="button" class="btn danger" id="ac-delme">Delete account</button></div></div>
+    <p class="note"><a href="${esc(PRIVACY_URL)}" target="_blank" rel="noopener">Privacy policy</a> · <a href="${esc((SERVER||'')+'/support.html')}" target="_blank" rel="noopener">Help and support</a></p>
+    <div class="actions"><span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Save</button></div>`,
+  (f,close)=>{
+    const two=(sel,warn,run)=>{const b=f.querySelector(sel);if(!b)return;let armed=false;b.onclick=async()=>{if(!armed){armed=true;b.textContent=warn;return}
+      try{await run();close()}catch(e){toast(e.message||'That didn’t work. Check your connection and try again.')}}};
+    f.querySelectorAll('[data-hh]').forEach(b=>b.onclick=()=>{close();pickHousehold(b.dataset.hh);render();refresh()});
+    f.querySelector('#ac-more').onclick=()=>{close();pickHousehold(null);render()};
+    two('#ac-leave','Tap again to leave',async()=>{await API.call('POST','household/leave');await loadAccount();pickHousehold(null);render();toast('You’ve left the household.')});
+    two('#ac-delhh','Tap again: delete it for everyone',async()=>{await API.call('DELETE','household');await loadAccount();pickHousehold(null);render();toast('Household deleted.')});
+    two('#ac-out','Tap again to sign out',async()=>{try{await API.call('POST','signout')}catch(e){}signedOut();render()});
+    two('#ac-delme','Tap again: delete my account',async()=>{await API.call('DELETE','account');signedOut();render();toast('Your account has been deleted.')});
+    f.onsubmit=x=>{x.preventDefault();const name=f.querySelector('#ac-hh').value.trim();close();
+      if(name&&name!==h.name)act(async()=>{await API.call('PATCH','household',{name})})};
   });
 }
 let wakeLock=null;
@@ -793,17 +931,21 @@ async function loadExamples(){
 function clearExamples(){
   act(async b=>{for(const col of ['todos','events','members'])for(const x of data[col].filter(x=>x.example))await b.remove(col,x.id)});
 }
-(function start(){
-  const k=readInvite(location.search);
-  if(k){saveKey(k);history.replaceState(null,'',location.pathname)}
-  if(!API.key)ui.mode='nokey';
-  render();refresh();
+(async function start(){
+  const inv=inviteFrom(location.search);
+  if(inv){store.set('invite',inv);history.replaceState(null,'',location.pathname)}
+  ui.mode=API.session?'connecting':'signedout';
+  render();
+  await loadConfig();
+  if(API.session)await loadAccount();
+  render();
   setInterval(()=>{if(document.visibilityState==='visible')refresh()},20000);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh()});
   if(!NATIVE&&'serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
-  // In the iOS/Android app, an invite link opened on the phone lands here.
+  // In the iOS/Android app, an invite link or a calendar file opened on the phone lands here.
   const AppPlugin=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.App;
-  if(AppPlugin)AppPlugin.addListener('appUrlOpen',ev=>{const u=String(ev.url||'');const k=readInvite(u);if(k){saveKey(k);ui.mode='connecting';refresh();return}
+  if(AppPlugin)AppPlugin.addListener('appUrlOpen',ev=>{const u=String(ev.url||'');const code=inviteFrom(u);
+    if(code){store.set('invite',code);if(API.session)loadAccount().then(()=>{render();refresh()});else render();return}
     if(/^(file|content):/i.test(u))refresh().then(()=>openSharedFile(u))});
   if(AppPlugin&&AppPlugin.getLaunchUrl)AppPlugin.getLaunchUrl().then(r=>{const u=r&&r.url||'';if(/^(file|content):/i.test(u))refresh().then(()=>openSharedFile(u))}).catch(()=>{});
   refresh().then(checkShareTarget);

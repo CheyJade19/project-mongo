@@ -19,6 +19,7 @@
     "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.5.2",
     "@capacitor/ios": "^8.5.2",
+    "@capgo/capacitor-social-login": "^8.5.17",
     "postal-mime": "^2.4.0"
   },
   "devDependencies": {

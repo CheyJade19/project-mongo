@@ -17,3 +17,11 @@ if (!db?.uuid) throw new Error(`Couldn't find the ${NAME} database after creatin
 const config = readFileSync("wrangler.jsonc", "utf8");
 writeFileSync("wrangler.jsonc", config.replace(/"database_id":\s*"[^"]*"/, `"database_id": "${db.uuid}"`));
 console.log(`Using D1 database ${db.uuid}`);
+
+// One time only: a database from before accounts has households with a shared key. That test
+// data can't carry over, so clear it out before schema.sql creates the new tables.
+const cols = JSON.parse(wrangler("d1", "execute", NAME, "--remote", "--json", "--command", "PRAGMA table_info(households)"));
+if (cols[0]?.results?.some((c) => c.name === "key_hash")) {
+  console.log("Clearing test data from before accounts");
+  wrangler("d1", "execute", NAME, "--remote", "--file=scripts/reset-before-accounts.sql");
+}
