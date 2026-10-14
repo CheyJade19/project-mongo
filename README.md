@@ -49,7 +49,10 @@ Each person then opens **Household › Email** in the app to see their address a
 
 ### Automatic deploys
 
-`.github/workflows/ci.yml` runs the tests on every push. Add `CLOUDFLARE_API_TOKEN` (a token with the "Edit Cloudflare Workers" template plus D1 edit) and `CLOUDFLARE_ACCOUNT_ID` as repository secrets and every push to `main` deploys too.
+`.github/workflows/ci.yml` runs the tests on every push. Add two repository secrets (GitHub › Settings › Secrets and variables › Actions) and every push to `main` deploys too, creating the database the first time:
+
+- `CLOUDFLARE_ACCOUNT_ID`: on the Cloudflare dashboard home, open the ⋯ menu next to your account name › Copy account ID.
+- `CLOUDFLARE_API_TOKEN`: My Profile › API Tokens › Create Token › use the "Edit Cloudflare Workers" template, add the permission Account › D1 › Edit, then create it.
 
 ## iOS and Android apps
 
