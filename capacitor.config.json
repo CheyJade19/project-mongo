@@ -1,0 +1,8 @@
+{
+  "appId": "com.householdcalendar.app",
+  "appName": "Household",
+  "webDir": "native-www",
+  "backgroundColor": "#F7F5FB",
+  "ios": { "contentInset": "never" },
+  "android": { "allowMixedContent": false }
+}

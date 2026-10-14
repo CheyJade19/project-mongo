@@ -1,0 +1,30 @@
+{
+  "name": "household-calendar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute household-calendar --remote --file=schema.sql",
+    "db:init:local": "wrangler d1 execute household-calendar --local --file=schema.sql",
+    "test": "node --test test/*.test.js",
+    "build:native": "node scripts/build-native.mjs",
+    "cap:sync": "npm run build:native && cap sync",
+    "ios": "npm run cap:sync && cap open ios",
+    "android": "npm run cap:sync && cap open android"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.2",
+    "postal-mime": "^2.4.0",
+    "zod": "^4.0.0",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/android": "^8.5.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "wrangler": "^4.40.0"
+  }
+}

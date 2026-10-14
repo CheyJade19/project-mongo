@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Household Calendar</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Household">
+<meta name="theme-color" content="#F7F5FB" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1A1925" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script src="config.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap">
+<style>
+/* Layout: sticky family bar (date, clock, people chips, view switch) over one working surface:
+   Day = one column per person (schedule + to-dos), Week = 7-day grid, Month = overview. */
+:root{
+  --bg:#F7F5FB; --surface:#FFFFFF; --sunk:#EEEBF6; --ink:#2B2840; --muted:#6C6884;
+  --line:#E5E1F0; --accent:#C3B1F5; --accent-ink:#2B2840; --today:#FFF5DC; --danger:#C2415B; --tint:40%;
+  --shadow:0 1px 2px rgba(43,40,64,.05),0 6px 18px rgba(120,100,180,.08);
+  --avink:#2B2840;
+  --display:"Bricolage Grotesque",ui-rounded,"SF Pro Rounded",system-ui,sans-serif;
+  --body:"Figtree",-apple-system,"Segoe UI",system-ui,sans-serif;
+  --r:16px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#1A1925; --surface:#24222F; --sunk:#1F1D29; --ink:#ECE9F6; --muted:#A8A3BE;
+  --line:#363346; --accent:#C9B9F7; --accent-ink:#1A1925; --today:#2F2C24; --danger:#F4A1B2; --tint:24%;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#1A1925; --surface:#24222F; --sunk:#1F1D29; --ink:#ECE9F6; --muted:#A8A3BE;
+  --line:#363346; --accent:#C9B9F7; --accent-ink:#1A1925; --today:#2F2C24; --danger:#F4A1B2; --tint:24%;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25); color-scheme:dark}
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.4;-webkit-tap-highlight-color:transparent}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.gut{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+/* header */
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.hrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-block:12px 10px}
+.when{display:flex;flex-direction:column;min-width:0;flex:1 1 240px}
+.when h1{font-family:var(--display);font-weight:700;font-size:clamp(22px,3.4vw,32px);letter-spacing:-.01em;margin:0;line-height:1.1;text-wrap:balance}
+.when .sub{color:var(--muted);font-size:13px;display:flex;gap:10px;align-items:center;font-variant-numeric:tabular-nums}
+.dot-sync{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
+.dot-sync.ok{background:#7CCB9A}
+.nav{display:flex;gap:6px;align-items:center}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:8px 14px;min-height:40px;display:inline-flex;align-items:center;gap:6px;font-weight:500}
+.btn.icon{width:40px;padding:0;justify-content:center}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:600}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--danger)}
+.btn svg{width:18px;height:18px;flex:none}
+.seg{display:inline-flex;background:var(--sunk);border-radius:999px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;border-radius:999px;padding:7px 14px;min-height:34px;font-weight:500;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.people{display:flex;gap:8px;overflow-x:auto;padding-block:0 12px;scrollbar-width:none}
+.people::-webkit-scrollbar{display:none}
+.pchip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px 4px 4px;white-space:nowrap;min-height:40px}
+.pchip[aria-pressed="false"]{opacity:.45;background:transparent}
+.av{width:30px;height:30px;border-radius:50%;display:inline-grid;place-items:center;color:var(--avink);font-weight:700;font-family:var(--display);font-size:14px;flex:none}
+.av.lg{width:40px;height:40px;font-size:18px}
+
+main{padding-block:16px 40px}
+.banner{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:10px 14px;margin-bottom:14px;font-size:14px;color:var(--muted)}
+.banner b{color:var(--ink)}
+
+/* day view: columns per person */
+.house{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 14px;margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.house .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.cols{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(250px,1fr);gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:6px}
+.col{scroll-snap-align:start;background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.colhead{display:flex;align-items:center;gap:10px;padding:12px 14px;background:color-mix(in srgb,var(--c) var(--tint),var(--surface))}
+.colhead h2{font-family:var(--display);font-size:20px;margin:0;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.colhead .meta{margin-left:auto;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
+.ring{--p:0;width:34px;height:34px;border-radius:50%;background:conic-gradient(var(--c) calc(var(--p)*1%),var(--sunk) 0);display:grid;place-items:center;flex:none}
+.ring span{width:26px;height:26px;border-radius:50%;background:var(--surface);display:grid;place-items:center;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+.sec{padding:10px 14px;display:flex;flex-direction:column;gap:6px}
+.sec h3{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.empty{color:var(--muted);font-size:13px;padding:4px 0}
+.ev{display:flex;gap:10px;align-items:flex-start;border:0;text-align:left;width:100%;background:color-mix(in srgb,var(--c,#888) var(--tint),var(--surface));border-radius:10px;padding:8px 10px;min-height:40px}
+.ev .t{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:58px;padding-top:2px}
+.ev .x{min-width:0;flex:1}
+.ev .ttl{font-weight:600;overflow-wrap:anywhere}
+.ev .loc{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.dots{display:inline-flex;gap:3px;align-items:center}
+.dots i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.todo{display:flex;align-items:center;gap:10px;min-height:42px;border-bottom:1px solid var(--line)}
+.todo:last-child{border-bottom:0}
+.check{width:28px;height:28px;border-radius:50%;border:2px solid var(--c);background:transparent;display:grid;place-items:center;flex:none;padding:0}
+.check svg{width:16px;height:16px;opacity:0;color:var(--avink)}
+.todo.done .check{background:var(--c)}
+.todo.done .check svg{opacity:1}
+.todo .lab{flex:1;min-width:0;border:0;background:none;text-align:left;padding:6px 0;overflow-wrap:anywhere}
+.todo.done .lab{text-decoration:line-through;color:var(--muted)}
+.tag{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 7px;white-space:nowrap}
+.tag.late{color:var(--danger);border-color:currentColor}
+.quick{display:flex;gap:6px;margin-top:4px}
+.quick input{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:8px 10px;min-height:40px}
+
+/* week view */
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+.wday{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:8px;display:flex;flex-direction:column;gap:6px;min-height:200px;min-width:0}
+.wday.is-today{background:var(--today)}
+.wday .dh{display:flex;align-items:baseline;gap:6px;border:0;background:none;padding:2px 2px 6px;text-align:left}
+.wday .dh b{font-family:var(--display);font-size:22px}
+.wday .dh span{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.wday .ev{flex-direction:column;gap:2px;padding:6px 8px}
+.wday .ev .t{min-width:0;padding:0}
+.addday{margin-top:auto;border:1px dashed var(--line);background:transparent;border-radius:10px;min-height:36px;color:var(--muted);font-size:13px}
+
+/* month view */
+.mhead,.month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.mhead div{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;padding:0 6px 6px}
+.mcell{background:var(--surface);border-radius:10px;min-height:104px;padding:6px;border:0;text-align:left;display:flex;flex-direction:column;gap:3px;min-width:0;overflow:hidden}
+.mcell.out{opacity:.45}
+.mcell.is-today{background:var(--today)}
+.mcell .n{font-weight:600;font-variant-numeric:tabular-nums;font-size:13px}
+.mcell .pill{font-size:12px;border-radius:6px;padding:1px 6px;background:color-mix(in srgb,var(--c,#888) var(--tint),var(--surface));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mcell .more{font-size:11px;color:var(--muted)}
+.mcell .mdots{display:none}
+
+/* first run */
+.welcome{max-width:560px;margin:6vh auto 0;background:var(--surface);border-radius:20px;box-shadow:var(--shadow);padding:28px;display:flex;flex-direction:column;gap:14px}
+.welcome h2{font-family:var(--display);font-size:28px;margin:0;text-wrap:balance}
+.welcome p{margin:0;color:var(--muted)}
+.welcome .row{display:flex;gap:10px;flex-wrap:wrap}
+
+/* sheets */
+.scrim{position:fixed;inset:0;background:rgba(10,16,20,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--surface);width:100%;max-width:560px;max-height:92%;overflow:auto;border-radius:20px 20px 0 0;
+  padding:18px max(18px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
+@media (min-width:700px){.scrim{align-items:center}.sheet{border-radius:20px;padding:22px}}
+.sheet h2{font-family:var(--display);margin:0;font-size:24px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field>label,.field>.lbl{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.field input[type=text],.field input[inputmode],.field input[type=date],.field input[type=time],.field textarea,.field select{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px;min-height:44px;width:100%}
+.field textarea{min-height:70px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.picks{display:flex;gap:8px;flex-wrap:wrap}
+.pick{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:4px 12px 4px 4px;min-height:40px}
+.pick[aria-pressed="true"]{border-color:var(--c,var(--accent));background:color-mix(in srgb,var(--c,var(--accent)) var(--tint),var(--surface));font-weight:600}
+.pick.txt{padding:4px 14px}
+.toggle{display:flex;align-items:center;gap:10px;min-height:40px}
+.toggle input{width:22px;height:22px;accent-color:var(--accent)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.actions .spacer{flex:1}
+.swatches{display:flex;gap:8px;flex-wrap:wrap}
+.sw{width:34px;height:34px;border-radius:50%;border:3px solid transparent;padding:0}
+.sw[aria-pressed="true"]{border-color:var(--ink)}
+.plist{display:flex;flex-direction:column;gap:8px}
+.prow{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+.prow .nm{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:13px;color:var(--muted)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;z-index:30;font-size:14px;max-width:calc(100% - 32px)}
+
+@media (max-width:760px){
+  .week{grid-template-columns:1fr}
+  .wday{min-height:0}
+  .cols{grid-auto-columns:86%}
+  .mcell{min-height:58px}
+  .mcell .pill,.mcell .more{display:none}
+  .mcell .mdots{display:flex;gap:3px;flex-wrap:wrap}
+  .mcell .mdots i{width:7px;height:7px;border-radius:50%}
+  .hide-sm{display:none}
+  header{position:static}
+  .hrow{gap:8px}
+}
+@media (prefers-reduced-motion:no-preference){.col,.wday,.mcell,.ev{transition:background-color .2s}}
+.addr{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:14px;background:var(--sunk);border-radius:10px;padding:10px 12px;overflow-wrap:anywhere;user-select:all}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.steps li{padding-left:2px}
+.log{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.log .prow{align-items:flex-start}
+.welcome input{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px;min-height:44px;width:100%}
+body.nokey header .nav,body.nokey header .seg,body.nokey #people{display:none}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="gut">
+    <div class="hrow">
+      <div class="when"><h1 id="title">Loading…</h1><div class="sub"><span id="clock"></span><span id="sync"><i class="dot-sync"></i> Connecting</span></div></div>
+      <div class="nav">
+        <button class="btn icon" id="prev" aria-label="Previous"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <button class="btn" id="todayBtn">Today</button>
+        <button class="btn icon" id="next" aria-label="Next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <div class="seg" role="group" aria-label="View">
+        <button id="v-day" data-view="day">Day</button><button id="v-week" data-view="week">Week</button><button id="v-month" data-view="month">Month</button>
+      </div>
+      <div class="nav">
+        <button class="btn primary" id="addEvent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Event</button>
+        <button class="btn" id="addTodo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>To-do</button>
+        <button class="btn" id="fromEmail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg>From email</button>
+        <button class="btn icon" id="themeBtn" aria-label="Theme"></button>
+        <button class="btn icon" id="menuBtn" aria-label="Household settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3.2 3-5 5.5-5s4.7 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.2c2.2.1 3.8 1.6 4.5 4.3"/></svg></button>
+      </div>
+    </div>
+    <div class="people" id="people"></div>
+  </div>
+</header>
+<main class="gut" id="main"></main>
+<div id="layer"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const COLORS=['#F7B4A0','#A6D3F2','#CDB8F4','#F5D888','#A7DDBD','#F3B2CF','#9DDAD3','#C5CCDB'];
+const OLD={'#E0533A':'#F7B4A0','#2B7FBF':'#A6D3F2','#8A56C9':'#CDB8F4','#D69A00':'#F5D888','#2F9A5A':'#A7DDBD','#D0457C':'#F3B2CF','#14958F':'#9DDAD3','#6A778C':'#C5CCDB'};
+const normM=m=>OLD[m.color]?{...m,color:OLD[m.color]}:m;
+const KEY='household-calendar-v1';
+const DOW=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const pad=n=>String(n).padStart(2,'0');
+const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseD=s=>{const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
+const addDays=(s,n)=>{const d=parseD(s);d.setDate(d.getDate()+n);return ymd(d)};
+const weekStart=s=>{const d=parseD(s);d.setDate(d.getDate()-((d.getDay()+6)%7));return ymd(d)};
+const todayStr=()=>ymd(new Date());
+const fmtTime=t=>{if(!t)return'';const[h,m]=t.split(':').map(Number);return new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+
+let data={members:[],events:[],todos:[]};
+const ui={view:'day',cursor:todayStr(),hidden:new Set(),mode:'connecting'};
+try{const v=localStorage.getItem(KEY+':view');if(v)ui.view=v}catch(e){}
+
+/* ---------- storage: the household's own server ---------- */
+const KEYSTORE=KEY+':key';
+const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+const SERVER=String(window.HOUSEHOLD_SERVER||'').replace(/\/$/,'');
+const API={key:null,
+  async call(method,path,body){
+    const r=await fetch(SERVER+'/api/'+path,{method,headers:{'content-type':'application/json',...(this.key?{authorization:'Bearer '+this.key}:{})},body:body?JSON.stringify(body):undefined});
+    const j=await r.json().catch(()=>({}));if(!r.ok)throw{status:r.status,message:j.error};return j}};
+try{API.key=localStorage.getItem(KEYSTORE)}catch(e){}
+let meta={household:null,inbound:[]};
+let backend=null;
+const strip=o=>{const c={...o};delete c.id;delete c.inbox;return c};
+let busy=0;
+async function refresh(){
+  if(!API.key||busy)return;
+  try{const s=await API.call('GET','state');if(busy)return;
+    meta={household:s.household,inbound:s.inbound||[]};
+    data={members:s.members.map(normM),events:s.events,todos:s.todos};ui.mode='shared';backend=server}
+  catch(e){if(e.status===401){forget();toast('This device was signed out of the household.')}else ui.mode='offline'}
+  render();
+}
+const server={
+  async add(col,o){const tmp='tmp-'+uid();data[col].push({...o,id:tmp});render();busy++;
+    try{const r=await API.call('POST',col,o);const x=data[col].find(x=>x.id===tmp);if(x)x.id=r.id;return{id:r.id}}finally{busy--}},
+  async put(col,o){const i=data[col].findIndex(x=>x.id===o.id);if(i>=0)data[col][i]=o;render();busy++;
+    try{await API.call('PUT',col+'/'+o.id,strip(o))}finally{busy--}},
+  async remove(col,id){data[col]=data[col].filter(x=>x.id!==id);render();busy++;
+    try{await API.call('DELETE',col+'/'+id)}finally{busy--}}
+};
+async function act(fn){
+  if(!backend){toast('Still connecting. Try again in a moment.');return}
+  try{await fn(backend)}catch(e){toast(e&&e.message||'That didn\u2019t save. Check your connection and try again.')}
+  refresh();
+}
+function saveKey(k){API.key=k;try{localStorage.setItem(KEYSTORE,k)}catch(e){}}
+function forget(){API.key=null;backend=null;data={members:[],events:[],todos:[]};try{localStorage.removeItem(KEYSTORE)}catch(e){}}
+const inviteLink=()=>(SERVER||location.origin)+'/?join='+encodeURIComponent(API.key||'');
+function readInvite(text){const m=String(text||'').match(/join=([A-Za-z0-9]+)/);return m?m[1]:(/^[A-Za-z0-9]{20,}$/.test(String(text).trim())?String(text).trim():null)}
+async function copy(text,btn){try{await navigator.clipboard.writeText(text);if(btn){const o=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=o,1500)}}catch(e){toast('Press and hold the text to copy it.')}}
+
+/* ---------- derived ---------- */
+const member=id=>data.members.find(m=>m.id===id);
+const members=()=>[...data.members].sort((a,b)=>(a.order??0)-(b.order??0)||a.name.localeCompare(b.name));
+const shown=()=>members().filter(m=>!ui.hidden.has(m.id));
+const evVisible=e=>!e.memberIds||!e.memberIds.length||e.memberIds.some(id=>member(id)&&!ui.hidden.has(id));
+const sortEv=(a,b)=>(a.allDay?0:1)-(b.allDay?0:1)||(a.start||'').localeCompare(b.start||'');
+const eventsOn=d=>data.events.filter(e=>e.date===d&&evVisible(e)).sort(sortEv);
+const evColor=e=>{const m=(e.memberIds||[]).map(member).filter(Boolean);return m.length===1?m[0].color:'var(--accent)'};
+const todoOn=(t,day)=>{
+  if(t.repeat==='daily')return true;
+  if(t.date){if(t.date===day)return true;return !t.done&&t.date<day&&day===todayStr()}
+  return !t.done||t.doneOn===day;
+};
+const isDone=(t,day)=>t.repeat==='daily'?(t.doneDates||[]).includes(day):!!t.done;
+function toggleTodo(t,day){
+  const o={...t};
+  if(t.repeat==='daily'){const s=new Set(t.doneDates||[]);s.has(day)?s.delete(day):s.add(day);o.doneDates=[...s].sort().slice(-60)}
+  else{o.done=!t.done;o.doneOn=o.done?day:null}
+  act(b=>b.put('todos',o));
+}
+
+/* ---------- render ---------- */
+function dots(e){
+  const ms=(e.memberIds||[]).map(member).filter(Boolean);
+  if(!ms.length)return'<span class="tag">Everyone</span>';
+  return`<span class="dots">${ms.map(m=>`<i style="background:${m.color}" title="${esc(m.name)}"></i>`).join('')}</span>`;
+}
+function evChip(e,compact){
+  const time=e.allDay?'All day':fmtTime(e.start)+(e.end&&!compact?'–'+fmtTime(e.end):'');
+  return`<button class="ev" style="--c:${evColor(e)}" data-ev="${e.id}"><span class="t">${esc(time)}</span><span class="x"><span class="ttl">${esc(e.title)}</span>${e.source==='email'?'<span class="tag" style="margin-left:6px">from email</span>':''}${e.location?`<div class="loc">${esc(e.location)}</div>`:''}</span>${compact?'':dots(e)}</button>`;
+}
+function renderHeader(){
+  const c=parseD(ui.cursor);let t;
+  if(ui.view==='day')t=c.toLocaleDateString([],{weekday:'long',day:'numeric',month:'long'});
+  else if(ui.view==='week'){const a=parseD(weekStart(ui.cursor)),b=parseD(addDays(weekStart(ui.cursor),6));
+    t=`${a.toLocaleDateString([],{day:'numeric',month:'short'})} – ${b.toLocaleDateString([],{day:'numeric',month:'short'})}`}
+  else t=c.toLocaleDateString([],{month:'long',year:'numeric'});
+  $('#title').textContent=t;
+  $('#sync').innerHTML=ui.mode==='shared'?`<i class="dot-sync ok"></i> ${esc(meta.household?.name||'Shared with your household')}`:ui.mode==='nokey'?'':ui.mode==='offline'?'<i class="dot-sync"></i> Reconnecting…':'<i class="dot-sync"></i> Connecting…';
+  document.querySelectorAll('.seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===ui.view));
+  $('#people').innerHTML=members().map(m=>`<button class="pchip" data-toggle="${m.id}" aria-pressed="${!ui.hidden.has(m.id)}"><span class="av" style="background:${m.color}">${esc(m.name.slice(0,1).toUpperCase())}</span>${esc(m.name)}</button>`).join('');
+  $('#people').hidden=!data.members.length;
+}
+function renderClock(){$('#clock').textContent=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}
+
+function renderDay(){
+  const d=ui.cursor,evs=eventsOn(d);
+  const fam=evs.filter(e=>!e.memberIds||!e.memberIds.length);
+  let h='';
+  if(fam.length)h+=`<div class="house"><span class="lbl">Whole household</span>${fam.map(e=>`<div style="flex:1 1 220px;min-width:0">${evChip(e)}</div>`).join('')}</div>`;
+  h+='<div class="cols">'+shown().map(m=>{
+    const mine=evs.filter(e=>(e.memberIds||[]).includes(m.id));
+    const todos=data.todos.filter(t=>t.memberId===m.id&&todoOn(t,d)).sort((a,b)=>(isDone(a,d)-isDone(b,d))||(a.title||'').localeCompare(b.title||''));
+    const done=todos.filter(t=>isDone(t,d)).length,pct=todos.length?Math.round(done/todos.length*100):0;
+    return`<section class="col" style="--c:${m.color}">
+      <div class="colhead"><span class="av lg" style="background:${m.color}">${esc(m.name.slice(0,1).toUpperCase())}</span><h2>${esc(m.name)}</h2>
+        <div class="meta">${todos.length?`${done} of ${todos.length} done`:''}</div>${todos.length?`<div class="ring" style="--p:${pct}"><span>${pct}%</span></div>`:''}</div>
+      <div class="sec"><h3>Schedule</h3>${mine.length?mine.map(e=>evChip(e,true)).join(''):'<div class="empty">Nothing scheduled</div>'}</div>
+      <div class="sec"><h3>To-dos</h3>${todos.map(t=>{
+        const late=t.date&&t.date<d&&!t.done;
+        return`<div class="todo ${isDone(t,d)?'done':''}"><button class="check" data-check="${t.id}" aria-label="Mark ${esc(t.title)} done">${CHECK}</button><button class="lab" data-todo="${t.id}">${esc(t.title)}</button>${t.repeat==='daily'?'<span class="tag">Daily</span>':late?'<span class="tag late">Overdue</span>':''}</div>`}).join('')||'<div class="empty">All clear</div>'}
+        <form class="quick" data-quick="${m.id}"><input id="q-${m.id}" type="text" placeholder="Add a to-do for ${esc(m.name)}" aria-label="New to-do for ${esc(m.name)}" enterkeyhint="done"><button class="btn icon" aria-label="Add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg></button></form>
+      </div></section>`}).join('')+'</div>';
+  if(!shown().length)h+='<div class="banner">Everyone is hidden. Tap a name above to show them again.</div>';
+  return h;
+}
+function renderWeek(){
+  const s=weekStart(ui.cursor),t=todayStr();
+  return'<div class="week">'+[0,1,2,3,4,5,6].map(i=>{const d=addDays(s,i),dt=parseD(d),evs=eventsOn(d);
+    return`<div class="wday ${d===t?'is-today':''}"><button class="dh" data-goday="${d}"><b>${dt.getDate()}</b><span>${DOW[i]}</span></button>${evs.map(e=>evChip(e)).join('')}<button class="addday" data-newev="${d}">+ Add</button></div>`}).join('')+'</div>';
+}
+function renderMonth(){
+  const c=parseD(ui.cursor),first=ymd(new Date(c.getFullYear(),c.getMonth(),1)),s=weekStart(first),t=todayStr();
+  let h='<div class="mhead">'+DOW.map(x=>`<div>${x}</div>`).join('')+'</div><div class="month">';
+  for(let i=0;i<42;i++){const d=addDays(s,i),dt=parseD(d),evs=eventsOn(d);
+    if(i===35&&dt.getMonth()!==c.getMonth())break;
+    h+=`<button class="mcell ${dt.getMonth()!==c.getMonth()?'out':''} ${d===t?'is-today':''}" data-goday="${d}"><span class="n">${dt.getDate()}</span>${evs.slice(0,3).map(e=>`<span class="pill" style="--c:${evColor(e)}">${e.allDay?'':esc(fmtTime(e.start))+' '}${esc(e.title)}</span>`).join('')}${evs.length>3?`<span class="more">+${evs.length-3} more</span>`:''}<span class="mdots">${evs.slice(0,6).map(e=>`<i style="background:${evColor(e)}"></i>`).join('')}</span></button>`}
+  return h+'</div>';
+}
+function renderJoin(){
+  return`<div class="welcome"><h2>Your household calendar</h2>
+  <p>One calendar for everyone at home. Each person gets their own colour, their own column of to-dos, and an email address that adds events for them automatically.</p>
+  <form class="field" data-form="create"><label for="hh-name">Start a new household</label><input id="hh-name" type="text" placeholder="The Parkers" autocomplete="off"><div class="row"><button class="btn primary">Create household</button></div></form>
+  <form class="field" data-form="join"><label for="hh-join">Or join one: paste the invite link someone sent you</label><input id="hh-join" type="text" placeholder="https://…/?join=…" autocomplete="off"><div class="row"><button class="btn">Join household</button></div></form>
+  <p class="note">On iPhone or iPad, tap Share then Add to Home Screen to use it like an app. If you added it before joining, paste your invite link here once.</p></div>`;
+}
+function renderWelcome(){
+  return`<div class="welcome"><h2>Set up your household</h2>
+  <p>Add each person who lives with you. Everyone gets a colour, their own column of to-dos, and their events on one shared calendar.</p>
+  <div class="row"><button class="btn primary" data-act="people">Add the first person</button><button class="btn" data-act="examples">Try it with an example family</button></div>
+  <p class="note">${ui.mode==='shared'?'Changes are shared with everyone in your household.':'Connecting to your household calendar…'}</p></div>`;
+}
+function render(){
+  document.body.classList.toggle('nokey',!API.key);
+  renderHeader();renderClock();
+  let h='';
+  if(data.members.some(m=>m.example))h+=`<div class="banner"><b>Example family.</b> These people and events are made up so you can see how it works.<button class="btn" data-act="clearex">Clear examples</button></div>`;
+  if(!API.key)h=renderJoin();
+  else if(!data.members.length)h+=renderWelcome();
+  else h+=ui.view==='day'?renderDay():ui.view==='week'?renderWeek():renderMonth();
+  const main=$('#main'),focused=document.activeElement&&document.activeElement.id,val=focused&&document.activeElement.value;
+  main.innerHTML=h;
+  if(focused&&focused.startsWith('q-')){const el=document.getElementById(focused);if(el){el.value=val||'';el.focus()}}
+}
+setInterval(renderClock,15000);
+
+/* ---------- interactions ---------- */
+function shift(n){
+  if(ui.view==='day')ui.cursor=addDays(ui.cursor,n);
+  else if(ui.view==='week')ui.cursor=addDays(ui.cursor,7*n);
+  else{const c=parseD(ui.cursor);ui.cursor=ymd(new Date(c.getFullYear(),c.getMonth()+n,1))}
+  render();
+}
+$('#prev').onclick=()=>shift(-1);$('#next').onclick=()=>shift(1);
+$('#todayBtn').onclick=()=>{ui.cursor=todayStr();render()};
+document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{ui.view=b.dataset.view;try{localStorage.setItem(KEY+':view',ui.view)}catch(e){}render()});
+$('#addEvent').onclick=()=>data.members.length?eventSheet({date:ui.cursor}):peopleSheet();
+$('#addTodo').onclick=()=>data.members.length?todoSheet({}):peopleSheet();
+$('#menuBtn').onclick=()=>peopleSheet();
+$('#people').onclick=e=>{const b=e.target.closest('[data-toggle]');if(!b)return;const id=b.dataset.toggle;ui.hidden.has(id)?ui.hidden.delete(id):ui.hidden.add(id);render()};
+$('#main').addEventListener('click',e=>{
+  const t=e.target.closest('[data-ev],[data-check],[data-todo],[data-goday],[data-newev],[data-act]');if(!t)return;
+  if(t.dataset.ev)eventSheet(data.events.find(x=>x.id===t.dataset.ev));
+  else if(t.dataset.check){const td=data.todos.find(x=>x.id===t.dataset.check);if(td)toggleTodo(td,ui.cursor)}
+  else if(t.dataset.todo)todoSheet(data.todos.find(x=>x.id===t.dataset.todo));
+  else if(t.dataset.goday){ui.cursor=t.dataset.goday;ui.view='day';render()}
+  else if(t.dataset.newev)eventSheet({date:t.dataset.newev});
+  else if(t.dataset.act==='people')peopleSheet();
+  else if(t.dataset.act==='examples')loadExamples();
+  else if(t.dataset.act==='clearex')clearExamples();
+});
+$('#main').addEventListener('submit',async e=>{
+  const form=e.target.closest('[data-form]');
+  if(form){e.preventDefault();
+    if(form.dataset.form==='create'){
+      const name=$('#hh-name').value.trim()||'Our household';
+      try{const r=await API.call('POST','households',{name,tz:Intl.DateTimeFormat().resolvedOptions().timeZone});saveKey(r.key);ui.mode='connecting';await refresh();peopleSheet()}
+      catch(err){toast(err&&err.message||'Couldn\u2019t create the household. Check your connection.')}
+    }else{
+      const k=readInvite($('#hh-join').value);if(!k){toast('That doesn\u2019t look like an invite link.');return}
+      saveKey(k);ui.mode='connecting';render();await refresh();if(API.key)toast('You\u2019ve joined the household.');
+    }
+    return}
+  const f=e.target.closest('[data-quick]');if(!f)return;e.preventDefault();
+  const inp=f.querySelector('input'),title=inp.value.trim();if(!title)return;inp.value='';
+  act(b=>b.add('todos',{title,memberId:f.dataset.quick,repeat:'none',date:null,done:false}));
+});
+
+/* ---------- sheets ---------- */
+function toast(msg){const d=document.createElement('div');d.className='toast';d.textContent=msg;document.body.appendChild(d);setTimeout(()=>d.remove(),2800)}
+function openSheet(html,bind){
+  const L=$('#layer');L.innerHTML=`<div class="scrim"><form class="sheet" novalidate>${html}</form></div>`;
+  const scrim=L.firstChild,form=scrim.firstChild,close=()=>{L.innerHTML='';document.removeEventListener('keydown',onKey)};
+  const onKey=e=>{if(e.key==='Escape')close()};document.addEventListener('keydown',onKey);
+  scrim.addEventListener('click',e=>{if(e.target===scrim)close()});
+  form.querySelectorAll('[data-close]').forEach(b=>b.onclick=close);
+  bind(form,close);
+  const first=form.querySelector('input[type=text]');if(first&&!first.value)setTimeout(()=>first.focus(),50);
+}
+const personPicks=(sel,multi)=>members().map(m=>`<button type="button" class="pick" style="--c:${m.color}" data-pick="${m.id}" aria-pressed="${sel.includes(m.id)}"><span class="av" style="background:${m.color}">${esc(m.name.slice(0,1).toUpperCase())}</span>${esc(m.name)}</button>`).join('');
+function bindPicks(form,multi){
+  form.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{
+    if(!multi)form.querySelectorAll('[data-pick]').forEach(x=>x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed',multi?b.getAttribute('aria-pressed')!=='true':'true')});
+}
+const picked=form=>[...form.querySelectorAll('[data-pick][aria-pressed="true"]')].map(b=>b.dataset.pick);
+
+function eventSheet(e){
+  const isNew=!e.id;e={allDay:false,start:'09:00',end:'10:00',memberIds:[],...e};
+  openSheet(`<h2>${isNew?'New event':'Edit event'}</h2>
+    <div class="field"><label for="ev-title">What</label><input id="ev-title" type="text" value="${esc(e.title)}" placeholder="Swimming lesson"></div>
+    <div class="field"><span class="lbl">Who</span><div class="picks">${personPicks(e.memberIds,true)}</div><span class="note">Pick nobody for a whole-household event.</span></div>
+    <div class="field"><label for="ev-date">Date</label><input id="ev-date" type="date" value="${esc(e.date)}"></div>
+    <label class="toggle"><input id="ev-allday" type="checkbox" ${e.allDay?'checked':''}> All day</label>
+    <div class="two" id="ev-times" ${e.allDay?'hidden':''}><div class="field"><label for="ev-start">Starts</label><input id="ev-start" type="time" value="${esc(e.start||'')}"></div><div class="field"><label for="ev-end">Ends</label><input id="ev-end" type="time" value="${esc(e.end||'')}"></div></div>
+    <div class="field"><label for="ev-loc">Where</label><input id="ev-loc" type="text" value="${esc(e.location)}" placeholder="Optional"></div>
+    <div class="field"><label for="ev-notes">Notes</label><textarea id="ev-notes">${esc(e.notes)}</textarea></div>
+    <div class="actions">${isNew?'':'<button type="button" class="btn danger" id="ev-del">Delete</button>'}<span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Save</button></div>`,
+  (f,close)=>{
+    bindPicks(f,true);
+    f.querySelector('#ev-allday').onchange=x=>f.querySelector('#ev-times').hidden=x.target.checked;
+    let armed=false;const del=f.querySelector('#ev-del');
+    if(del)del.onclick=()=>{if(!armed){armed=true;del.textContent='Tap again to delete';return}close();act(b=>b.remove('events',e.id))};
+    f.onsubmit=x=>{x.preventDefault();
+      const title=f.querySelector('#ev-title').value.trim(),date=f.querySelector('#ev-date').value;
+      if(!title||!date){toast(!title?'Give the event a name.':'Pick a date.');return}
+      const allDay=f.querySelector('#ev-allday').checked;
+      const o={title,date,allDay,start:allDay?null:f.querySelector('#ev-start').value||null,end:allDay?null:f.querySelector('#ev-end').value||null,
+        memberIds:picked(f),location:f.querySelector('#ev-loc').value.trim()||null,notes:f.querySelector('#ev-notes').value.trim()||null};
+      if(e.example)o.example=true;
+      close();act(b=>isNew?b.add('events',o):b.put('events',{...e,...o}));
+    };
+  });
+}
+function todoSheet(t){
+  const isNew=!t.id;t={repeat:'none',date:null,...t};
+  const firstM=t.memberId||shown()[0]?.id||members()[0]?.id;
+  const when=t.repeat==='daily'?'daily':t.date?'date':'any';
+  openSheet(`<h2>${isNew?'New to-do':'Edit to-do'}</h2>
+    <div class="field"><label for="td-title">To-do</label><input id="td-title" type="text" value="${esc(t.title)}" placeholder="Feed the dog"></div>
+    <div class="field"><span class="lbl">For</span><div class="picks">${personPicks([firstM],false)}</div></div>
+    <div class="field"><span class="lbl">When</span><div class="picks" id="td-when">
+      <button type="button" class="pick txt" data-when="any" aria-pressed="${when==='any'}">Anytime</button>
+      <button type="button" class="pick txt" data-when="date" aria-pressed="${when==='date'}">On a day</button>
+      <button type="button" class="pick txt" data-when="daily" aria-pressed="${when==='daily'}">Every day</button></div></div>
+    <div class="field" id="td-datef" ${when==='date'?'':'hidden'}><label for="td-date">Day</label><input id="td-date" type="date" value="${esc(t.date||ui.cursor)}"></div>
+    <div class="actions">${isNew?'':'<button type="button" class="btn danger" id="td-del">Delete</button>'}<span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Save</button></div>`,
+  (f,close)=>{
+    bindPicks(f,false);let w=when;
+    f.querySelectorAll('[data-when]').forEach(b=>b.onclick=()=>{w=b.dataset.when;f.querySelectorAll('[data-when]').forEach(x=>x.setAttribute('aria-pressed',x===b));f.querySelector('#td-datef').hidden=w!=='date'});
+    let armed=false;const del=f.querySelector('#td-del');
+    if(del)del.onclick=()=>{if(!armed){armed=true;del.textContent='Tap again to delete';return}close();act(b=>b.remove('todos',t.id))};
+    f.onsubmit=x=>{x.preventDefault();
+      const title=f.querySelector('#td-title').value.trim(),memberId=picked(f)[0];
+      if(!title){toast('Give the to-do a name.');return}
+      const o={title,memberId,repeat:w==='daily'?'daily':'none',date:w==='date'?f.querySelector('#td-date').value||ui.cursor:null};
+      close();act(b=>isNew?b.add('todos',{...o,done:false}):b.put('todos',{...t,...o}));
+    };
+  });
+}
+function peopleSheet(){
+  const ms=members(),used=new Set(ms.map(m=>m.color)),next=COLORS.find(c=>!used.has(c))||COLORS[ms.length%COLORS.length];
+  openSheet(`<h2>Household</h2>
+    <div class="plist">${ms.map(m=>`<div class="prow"><span class="av" style="background:${m.color}">${esc(m.name.slice(0,1).toUpperCase())}</span><span class="nm">${esc(m.name)}${m.email?`<br><span class="note">${esc(m.email)}</span>`:''}</span><button type="button" class="btn" data-fwd="${m.id}">Email</button><button type="button" class="btn" data-edit="${m.id}">Edit</button></div>`).join('')||'<p class="note">Nobody yet. Add yourself first.</p>'}</div>
+    <div id="pp-form" class="field"><span class="lbl" id="pp-lbl">Add a person</span>
+      <input id="pp-name" type="text" placeholder="Name" aria-labelledby="pp-lbl">
+      <input id="pp-email" type="text" inputmode="email" autocomplete="email" placeholder="Email address (optional, any provider)" aria-label="Email address">
+      <div class="swatches">${COLORS.map(c=>`<button type="button" class="sw" style="background:${c}" data-sw="${c}" aria-label="Colour ${c}" aria-pressed="${c===next}"></button>`).join('')}</div></div>
+    <div class="actions"><button type="button" class="btn danger" id="pp-del" hidden>Remove</button><span class="spacer"></span><button type="button" class="btn" id="pp-import">Import a calendar file</button><button type="button" class="btn ghost" data-close>Done</button><button class="btn primary" id="pp-save">Add person</button></div>
+    <label class="toggle"><input id="pp-wake" type="checkbox"> Keep this screen on (for a wall or kitchen display)</label>
+    <div class="field"><span class="lbl">Invite your household</span><p class="note" style="margin:0">Send this link to everyone who should see and edit the calendar. Anyone with it can join, so only share it with your household.</p><div class="addr" id="pp-link">${esc(inviteLink())}</div><div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="pp-copy">Copy invite link</button><button type="button" class="btn ghost danger" id="pp-leave">Sign this device out</button></div></div>`,
+  (f,close)=>{
+    let editing=null,color=next,armed=false;
+    const sws=f.querySelectorAll('[data-sw]');
+    sws.forEach(b=>b.onclick=()=>{color=b.dataset.sw;sws.forEach(x=>x.setAttribute('aria-pressed',x===b))});
+    f.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
+      editing=member(b.dataset.edit);color=editing.color;armed=false;
+      f.querySelector('#pp-name').value=editing.name;f.querySelector('#pp-email').value=editing.email||'';f.querySelector('#pp-lbl').textContent='Edit '+editing.name;
+      f.querySelector('#pp-save').textContent='Save';const d=f.querySelector('#pp-del');d.hidden=false;d.textContent='Remove';
+      sws.forEach(x=>x.setAttribute('aria-pressed',x.dataset.sw===color));f.querySelector('#pp-name').focus()});
+    f.querySelector('#pp-del').onclick=()=>{if(!editing)return;if(!armed){armed=true;f.querySelector('#pp-del').textContent='Tap again: removes their to-dos too';return}
+      const id=editing.id;close();act(async b=>{for(const t of data.todos.filter(t=>t.memberId===id))await b.remove('todos',t.id);
+        for(const e of data.events.filter(e=>(e.memberIds||[]).includes(id))){const ids=e.memberIds.filter(x=>x!==id);await b.put('events',{...e,memberIds:ids})}
+        await b.remove('members',id)})};
+    f.querySelector('#pp-import').onclick=()=>{close();importSheet()};
+    f.querySelectorAll('[data-fwd]').forEach(b=>b.onclick=()=>{close();forwardSheet(member(b.dataset.fwd))});
+    f.querySelector('#pp-copy').onclick=e=>copy(inviteLink(),e.target);
+    let leaveArmed=false;f.querySelector('#pp-leave').onclick=e=>{if(!leaveArmed){leaveArmed=true;e.target.textContent='Tap again: you\u2019ll need the invite link to come back';return}close();forget();render()};
+    const wk=f.querySelector('#pp-wake');wk.checked=!!wakeLock;
+    wk.onchange=async()=>{if(wk.checked){try{wakeLock=await navigator.wakeLock.request('screen');wakeLock.addEventListener('release',()=>wakeLock=null)}catch(e){wk.checked=false;toast('This device won’t let the page keep the screen on.')}}else if(wakeLock){wakeLock.release();wakeLock=null}};
+    f.onsubmit=x=>{x.preventDefault();const name=f.querySelector('#pp-name').value.trim(),email=f.querySelector('#pp-email').value.trim()||null;
+      if(!name){if(!editing&&ms.length)close();else toast('Type a name first.');return}
+      if(editing)act(b=>b.put('members',{...editing,name,color,email}));
+      else act(b=>b.add('members',{name,color,email,order:ms.length}));
+      close();setTimeout(peopleSheet,250);
+    };
+  });
+}
+let wakeLock=null;
+
+/* ---------- calendar file import (.ics from Google, Outlook, iCloud, school or club invites) ---------- */
+function icsDate(v){
+  const m=v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})\d{0,2}(Z)?)?/);if(!m)return{};
+  if(!m[4])return{date:`${m[1]}-${m[2]}-${m[3]}`};
+  if(m[6]){const d=new Date(Date.UTC(+m[1],m[2]-1,+m[3],+m[4],+m[5]));return{date:ymd(d),time:`${pad(d.getHours())}:${pad(d.getMinutes())}`}}
+  return{date:`${m[1]}-${m[2]}-${m[3]}`,time:`${m[4]}:${m[5]}`};
+}
+const icsText=v=>v.replace(/\\n/gi,' ').replace(/\\([,;\\])/g,'$1').trim();
+function parseICS(text){
+  const lines=text.replace(/\r?\n[ \t]/g,'').split(/\r?\n/),out=[];let cur=null;
+  for(const line of lines){
+    if(line==='BEGIN:VEVENT')cur={};
+    else if(line==='END:VEVENT'){if(cur&&cur.date)out.push(cur);cur=null}
+    else if(cur){const i=line.indexOf(':');if(i<0)continue;const k=line.slice(0,i).split(';')[0].toUpperCase(),v=line.slice(i+1);
+      if(k==='SUMMARY')cur.title=icsText(v);
+      else if(k==='LOCATION')cur.location=icsText(v)||null;
+      else if(k==='UID')cur.uid=v;
+      else if(k==='DTSTART'){const d=icsDate(v);cur.date=d.date;cur.start=d.time||null;cur.allDay=!d.time}
+      else if(k==='DTEND'){const d=icsDate(v);cur.end=d.time||null}}
+  }
+  return out;
+}
+function importSheet(){
+  let found=[];
+  openSheet(`<h2>Import a calendar file</h2>
+    <p class="note">Open an invite or export from Google Calendar, Outlook or iCloud and choose the .ics file here. Events already imported are skipped.</p>
+    <div class="field"><label for="im-file">Calendar file</label><input id="im-file" type="file" accept=".ics,text/calendar"></div>
+    <div class="field"><span class="lbl">Whose events are these?</span><div class="picks">${personPicks([],true)}</div></div>
+    <p class="note" id="im-count">No file chosen yet.</p>
+    <div class="actions"><span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" id="im-go" disabled>Import</button></div>`,
+  (f,close)=>{
+    bindPicks(f,true);
+    f.querySelector('#im-file').onchange=async e=>{const file=e.target.files[0];if(!file)return;
+      found=parseICS(await file.text());const have=new Set(data.events.map(x=>x.uid).filter(Boolean));
+      found=found.filter(x=>!x.uid||!have.has(x.uid));
+      f.querySelector('#im-count').textContent=found.length?`Found ${found.length} new event${found.length>1?'s':''}.`:'No new events in that file.';
+      f.querySelector('#im-go').disabled=!found.length};
+    f.onsubmit=x=>{x.preventDefault();const ids=picked(f),list=found;close();
+      act(async b=>{for(const e of list)await b.add('events',{title:e.title||'Untitled',date:e.date,allDay:e.allDay,start:e.start,end:e.end,location:e.location||null,uid:e.uid||null,memberIds:ids,notes:null});toast(`Imported ${list.length} event${list.length>1?'s':''}.`)})};
+  });
+}
+
+
+/* ---------- light / dark ---------- */
+const THEMES=['system','light','dark'];
+const THEME_ICON={system:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>',
+  light:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg>',
+  dark:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>'};
+let theme='system';try{theme=localStorage.getItem(KEY+':theme')||'system'}catch(e){}
+function applyTheme(){
+  const r=document.documentElement;theme==='system'?r.removeAttribute('data-theme'):r.setAttribute('data-theme',theme);
+  const b=$('#themeBtn');b.innerHTML=THEME_ICON[theme];b.setAttribute('aria-label','Theme: '+(theme==='system'?'match device':theme)+'. Tap to change.');b.title=b.getAttribute('aria-label');
+}
+$('#themeBtn').onclick=()=>{theme=THEMES[(THEMES.indexOf(theme)+1)%3];try{localStorage.setItem(KEY+':theme',theme)}catch(e){}applyTheme();toast(theme==='system'?'Matching your device':theme==='light'?'Light mode':'Dark mode')};
+applyTheme();
+
+/* ---------- events from email (any provider) ---------- */
+async function extractEvents(text){
+  const r=await API.call('POST','extract',{text:text.slice(0,200000)});
+  return r.events||[];
+}
+function emailSheet(preset){
+  let found=[];
+  const me=preset||shown()[0]?.id||members()[0]?.id;
+  openSheet(`<h2>Add events from an email</h2>
+    <p class="note">For a one-off email: paste it, or choose a saved email (.eml) or invite (.ics) file. Claude finds the dates and you choose what to add. To add events automatically, use each person\u2019s forwarding address (Household \u203a Email).</p>
+    <div class="field"><span class="lbl">Whose email is this?</span><div class="picks">${personPicks(me?[me]:[],true)}</div></div>
+    <div class="field"><label for="em-text">Email text</label><textarea id="em-text" placeholder="Paste the email here: school newsletters, booking confirmations, party invites…" style="min-height:130px"></textarea></div>
+    <div class="field"><label for="em-file">Or choose an email or invite file</label><input id="em-file" type="file" accept=".eml,.ics,.txt,message/rfc822,text/calendar,text/plain"></div>
+    <div id="em-found" class="field" hidden><span class="lbl">Found in this email</span><div id="em-list" class="plist"></div></div>
+    <p class="note" id="em-status" aria-live="polite"></p>
+    <div class="actions"><span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancel</button><button type="button" class="btn" id="em-scan">Find events</button><button class="btn primary" id="em-add" hidden>Add to calendar</button></div>`,
+  (f,close)=>{
+    bindPicks(f,true);
+    const status=f.querySelector('#em-status'),scan=f.querySelector('#em-scan'),add=f.querySelector('#em-add');
+    let fileText='';
+    f.querySelector('#em-file').onchange=async e=>{const file=e.target.files[0];fileText=file?await file.text():'';if(file)status.textContent=`${file.name} ready. Tap Find events.`};
+    function show(list){
+      found=list;f.querySelector('#em-found').hidden=!list.length;add.hidden=!list.length;
+      f.querySelector('#em-list').innerHTML=list.map((e,i)=>`<label class="prow"><input type="checkbox" data-i="${i}" checked style="width:22px;height:22px;accent-color:var(--accent)"><span class="nm" style="white-space:normal">${esc(e.title)}<br><span class="note">${esc(parseD(e.date).toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'}))}${e.allDay?' · All day':' · '+esc(fmtTime(e.start))+(e.end?'–'+esc(fmtTime(e.end)):'')}${e.location?' · '+esc(e.location):''}</span></span></label>`).join('');
+      status.textContent=list.length?`Found ${list.length} event${list.length>1?'s':''}. Untick any you don’t want.`:'No dates found in that email.';
+    }
+    scan.onclick=async()=>{
+      const raw=(fileText||f.querySelector('#em-text').value).trim();
+      if(!raw){status.textContent='Paste an email or choose a file first.';return}
+      scan.disabled=true;status.textContent='Reading the email…';
+      try{const have=new Set(data.events.map(x=>x.uid).filter(Boolean));show((await extractEvents(raw)).filter(x=>!x.uid||!have.has(x.uid)))}
+      catch(e){status.textContent=e&&e.message||'Couldn\u2019t read that email just now. Try again.'}
+      finally{scan.disabled=false}
+    };
+    f.onsubmit=x=>{x.preventDefault();const ids=picked(f);
+      const list=[...f.querySelectorAll('#em-list input:checked')].map(c=>found[+c.dataset.i]);
+      if(!list.length){status.textContent='Tick at least one event.';return}
+      close();act(async b=>{for(const e of list)await b.add('events',{title:e.title,date:e.date,allDay:!!e.allDay,start:e.allDay?null:e.start||null,end:e.allDay?null:e.end||null,location:e.location||null,notes:e.notes||null,uid:e.uid||null,memberIds:ids,source:'email'});toast(`Added ${list.length} event${list.length>1?'s':''}.`)});
+    };
+  });
+}
+
+/* ---------- each person's forwarding address ---------- */
+const PROVIDERS={
+  gmail:{name:'Gmail',one:'Open the email, tap the three dots, then Forward, and send it to the address above.',
+    auto:['On a computer, open Gmail and go to Settings › See all settings › Forwarding and POP/IMAP.','Choose Add a forwarding address and paste the address above. Gmail sends a confirmation code to it; it shows up below under Recent emails within a minute.','Enter the code in Gmail, then (to send only some emails) create a filter: search for the sender, e.g. from:school.org, choose Create filter, tick Forward it to and pick this address.']},
+  outlook:{name:'Outlook / Hotmail',one:'Open the email, choose Forward, and send it to the address above.',
+    auto:['In Outlook on the web, open Settings › Mail › Rules and choose Add new rule.','Pick a condition such as From: the school or club.','Add the action Forward to and paste the address above, then Save.']},
+  icloud:{name:'iCloud Mail',one:'In the Mail app, open the email, tap the reply arrow, then Forward, and send it to the address above.',
+    auto:['On icloud.com, open Mail, click the settings gear, then Rules › Add a rule.','Choose If a message is from: the sender you want.','Choose Then: Forward to and paste the address above.']},
+  yahoo:{name:'Yahoo',one:'Open the email, tap Forward, and send it to the address above.',
+    auto:['Yahoo only offers automatic forwarding on some plans. If yours has it: Settings › More settings › Mailboxes › your account › Forwarding.','Paste the address above and confirm with the code that shows up below under Recent emails.','Otherwise, forward each email by hand; it takes a few seconds.']},
+  other:{name:'Other',one:'Use Forward on the email and send it to the address above. Any email app works.',
+    auto:['Look in your email settings for Rules, Filters or Forwarding.','Add a rule for the senders you care about (school, clubs, doctor) with the action Forward to this address.','If your provider sends a confirmation email, it appears below under Recent emails.']}
+};
+const STATUS={added:'Added to the calendar',duplicate:'Already on the calendar',nothing_found:'No dates found',needs_setup:'Only invites can be read until Claude is switched on',too_large:'Too large to read',error:'Couldn’t read this one',confirmation:'Confirmation email'};
+function inboundLog(memberId){
+  const rows=meta.inbound.filter(r=>r.member_id===memberId).slice(0,8);
+  if(!rows.length)return'<p class="note">Nothing yet. Forward an email to try it.</p>';
+  return'<div class="log">'+rows.map(r=>`<div class="prow"><span class="nm" style="white-space:normal;font-weight:500">${esc(r.subject||'(no subject)')}<br><span class="note">${esc(r.from_addr||'')} · ${esc(new Date(r.received_at.replace(' ','T')+'Z').toLocaleString([],{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}))} · ${esc(r.status==='added'?`Added ${r.event_count} event${r.event_count>1?'s':''}`:STATUS[r.status]||r.status)}</span>${r.status==='confirmation'&&r.detail?`<br><span class="addr" style="display:block;margin-top:6px;font-size:12px">${esc(r.detail)}</span>`:''}</span></div>`).join('')+'</div>';
+}
+function forwardSheet(m){
+  if(!m)return;
+  const on=meta.household&&meta.household.emailEnabled;
+  let p=/gmail|googlemail/i.test(m.email||'')?'gmail':/outlook|hotmail|live\.|msn/i.test(m.email||'')?'outlook':/icloud|me\.com|mac\.com/i.test(m.email||'')?'icloud':/yahoo/i.test(m.email||'')?'yahoo':'other';
+  openSheet(`<h2>${esc(m.name)}’s email</h2>
+    ${on&&m.inbox?`<div class="field"><span class="lbl">Forward emails here</span><div class="addr" id="fw-addr">${esc(m.inbox)}</div><div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="fw-copy">Copy address</button></div>
+      <p class="note" style="margin:0">Anything sent here is read for dates and added to ${esc(m.name)}’s calendar, tagged “from email”. Keep this address private.</p></div>
+    <div class="field"><span class="lbl">Where is ${esc(m.name)}’s email?</span><div class="tabs">${Object.entries(PROVIDERS).map(([k,v])=>`<button type="button" class="pick txt" data-prov="${k}" aria-pressed="${k===p}">${v.name}</button>`).join('')}</div></div>
+    <div class="field"><span class="lbl">Send one email</span><p style="margin:0" id="fw-one"></p></div>
+    <div class="field"><span class="lbl">Send them automatically</span><ol class="steps" id="fw-auto"></ol></div>`
+    :`<p class="note">Forwarding addresses appear here once the household’s email domain is set up. Until then, use From email to paste emails in.</p>`}
+    <div class="field"><span class="lbl">Recent emails</span>${inboundLog(m.id)}</div>
+    <div class="actions"><span class="spacer"></span><button type="button" class="btn primary" data-close>Done</button></div>`,
+  (f)=>{
+    const show=()=>{const v=PROVIDERS[p];if(!f.querySelector('#fw-one'))return;f.querySelector('#fw-one').textContent=v.one;f.querySelector('#fw-auto').innerHTML=v.auto.map(x=>`<li>${esc(x)}</li>`).join('');
+      f.querySelectorAll('[data-prov]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.prov===p))};
+    f.querySelectorAll('[data-prov]').forEach(b=>b.onclick=()=>{p=b.dataset.prov;show()});
+    const c=f.querySelector('#fw-copy');if(c)c.onclick=e=>copy(m.inbox,e.target);
+    show();
+  });
+}
+$('#fromEmail').onclick=()=>data.members.length?emailSheet():peopleSheet();
+
+/* ---------- example family (added only when someone taps the button) ---------- */
+async function loadExamples(){
+  const t=todayStr(),ws=weekStart(t);
+  const people=[['Alex','#A6D3F2'],['Sam','#F7B4A0'],['Mia','#CDB8F4'],['Leo','#A7DDBD']];
+  await act(async b=>{
+    const ids=[];for(const[i,[n,c]]of people.entries()){const r=await b.add('members',{name:n,color:c,order:i,example:true});ids.push(r.id)}
+    for(const[col,o]of seed(ids))await b.add(col,{...o,example:true});
+  });
+  function seed([a,s,m,l]){const d=n=>addDays(t,n),w=n=>addDays(ws,n);return[
+    ['events',{title:'Team stand-up',date:d(0),start:'08:30',end:'09:00',memberIds:[a]}],
+    ['events',{title:'Dentist',date:d(0),start:'15:30',end:'16:15',memberIds:[m,s],location:'Bright Smiles Clinic'}],
+    ['events',{title:'Football practice',date:d(0),start:'16:30',end:'17:30',memberIds:[l]}],
+    ['events',{title:'Family pizza night',date:d(0),start:'18:30',end:'20:00',memberIds:[]}],
+    ['events',{title:'Yoga',date:d(1),start:'07:00',end:'08:00',memberIds:[s]}],
+    ['events',{title:'School concert',date:d(2),start:'18:00',end:'19:30',memberIds:[m,a,s]}],
+    ['events',{title:'Bin day',date:w(3),allDay:true,memberIds:[]}],
+    ['events',{title:'Swimming',date:w(5),start:'10:00',end:'11:00',memberIds:[l,m]}],
+    ['events',{title:'Grandma visiting',date:w(6),allDay:true,memberIds:[]}],
+    ['todos',{title:'Pay school fees',memberId:a,repeat:'none',date:d(0),done:false}],
+    ['todos',{title:'Book car service',memberId:a,repeat:'none',date:null,done:false}],
+    ['todos',{title:'Grocery order',memberId:s,repeat:'none',date:null,done:false}],
+    ['todos',{title:'Water the plants',memberId:s,repeat:'daily',doneDates:[]}],
+    ['todos',{title:'Make bed',memberId:m,repeat:'daily',doneDates:[t]}],
+    ['todos',{title:'Reading, 20 minutes',memberId:m,repeat:'daily',doneDates:[]}],
+    ['todos',{title:'Feed the dog',memberId:l,repeat:'daily',doneDates:[]}],
+    ['todos',{title:'Pack football kit',memberId:l,repeat:'none',date:d(0),done:true,doneOn:d(0)}],
+  ]}
+}
+function clearExamples(){
+  act(async b=>{for(const col of ['todos','events','members'])for(const x of data[col].filter(x=>x.example))await b.remove(col,x.id)});
+}
+(function start(){
+  const k=readInvite(location.search);
+  if(k){saveKey(k);history.replaceState(null,'',location.pathname)}
+  if(!API.key)ui.mode='nokey';
+  render();refresh();
+  setInterval(()=>{if(document.visibilityState==='visible')refresh()},20000);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh()});
+  if(!NATIVE&&'serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  // In the iOS/Android app, an invite link opened on the phone lands here.
+  const AppPlugin=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.App;
+  if(AppPlugin)AppPlugin.addListener('appUrlOpen',ev=>{const k=readInvite(ev.url);if(k){saveKey(k);ui.mode='connecting';refresh()}});
+})();
+</script>
+</body>
+</html>
