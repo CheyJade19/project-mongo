@@ -1,6 +1,8 @@
 # Household Calendar
 
-A shared calendar for everyone at home, in the spirit of a Skylight wall calendar. Each person has a profile, a colour and their own column of to-dos, and everyone's events sit together on one calendar. Each person also gets a private email address: forward an email to it (from Gmail, Outlook, iCloud, Yahoo or any other provider) and the dates in it land on their calendar.
+A shared calendar for everyone at home, in the spirit of a Skylight wall calendar. Each person has a profile, a colour and their own column of to-dos, and everyone's events sit together on one calendar.
+
+People add events from email on their own terms. The app never connects to anyone's inbox and uses no AI: each person picks an email or invite themselves, sees what was found in it, and chooses what goes on the calendar.
 
 It runs as:
 
@@ -13,7 +15,8 @@ It runs as:
 public/            The app itself (one HTML page, no build step), manifest, service worker, icons
 src/worker.js      Cloudflare Worker: serves public/, the /api JSON API, and receives forwarded email
 src/ics.js         Reads calendar invites (.ics) and converts times to the household's time zone
-src/extract.js     Asks Claude to pull events out of ordinary emails (newsletters, bookings, invites)
+src/text.js        Turns HTML emails into plain text
+public/dates.js    Finds written dates and times ("Wed 21 October at 6pm") with plain pattern matching
 schema.sql         D1 (SQLite) tables: households, items (members/events/to-dos), inboxes, inbound log
 ios/, android/     Native app shells (Capacitor) that load the same app and talk to your server
 scripts/           build-native.mjs prepares the app for the native shells
@@ -22,7 +25,13 @@ test/              Unit tests (npm test)
 
 **Households and sign-in.** Creating a household returns a secret key that stays on the device. The invite link (Household › Invite your household) carries that key, so anyone you send it to joins the same calendar. Treat it like a house key.
 
-**Email.** Cloudflare Email Routing sends every message for your email domain to the Worker. Each person's address looks like `chey.k3x9q2m1p7aa@inbox.yourfamily.com`; the random part picks the person. The Worker reads calendar invites directly, and asks Claude to find dates in everything else. Events are added to that person's calendar with a "from email" tag, duplicates are skipped, and each email shows up under Recent emails in their Email screen (including the confirmation codes Gmail and Yahoo send when you set up automatic forwarding).
+**Email, always the person's choice.** There are three ways to add events from email, and nothing happens without the person choosing it:
+
+1. **Open an invite in the app.** In Mail, Gmail or Outlook, tap the invite (.ics) and choose Household (iOS "Open in", Android "Open with", or the share sheet for the installed website on Android). The app shows the events and the person ticks the ones to add.
+2. **Paste or choose a file.** Under From email, paste the part of an email with the date, or choose a saved email (.eml) or invite. It's read on the device only; dates written in it are offered as suggestions.
+3. **Forward one email.** Each person has a private address such as `chey.k3x9q2m1p7aa@inbox.yourapp.com`. An email they forward there waits under **To review**. Nothing is added until they open it and pick what to add, and the email's text is deleted from the server as soon as they add from it or dismiss it, or after 14 days.
+
+There are no forwarding rules, no inbox access, and no AI anywhere in the app.
 
 ## Set up (about 20 minutes)
 
@@ -43,9 +52,7 @@ Open that address, create your household, and add everyone.
 1. Add a domain you own to Cloudflare (Cloudflare Registrar sells them at cost if you need one). A subdomain such as `inbox.yourfamily.com` works well.
 2. In the Cloudflare dashboard: your domain › **Email › Email Routing** › enable it, then **Routing rules › Catch-all address** › action **Send to a Worker** › `household-calendar`.
 3. Set `EMAIL_DOMAIN` in `wrangler.jsonc` to that domain and run `npx wrangler deploy` again.
-4. So Claude can read ordinary emails (not just invites), create an API key at [platform.claude.com](https://platform.claude.com) and run `npx wrangler secret put ANTHROPIC_API_KEY`. Without it, only emails with calendar invites attached become events.
-
-Each person then opens **Household › Email** in the app to see their address and step-by-step forwarding instructions for their provider.
+Each person then opens **Household › Email** in the app to see their address and how to forward a single email from their provider.
 
 ### Automatic deploys
 
@@ -78,7 +85,8 @@ To try a forwarded email locally, POST a raw message (it needs a `Message-ID` he
 
 ## Roadmap
 
-- Sign in with Google and Microsoft so Gmail and Outlook are read without setting up forwarding.
+- Sign in with Apple, Google or email so a household survives a lost phone.
+- An iOS share extension so text selected in any email can be shared straight to Household.
 - Universal links so invite links open straight in the installed apps.
 - Push notifications for reminders, and a "today" widget.
 - Native app icons and splash screens (`npx @capacitor/assets generate`).

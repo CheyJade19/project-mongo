@@ -14,6 +14,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <script src="config.js"></script>
+<script src="dates.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap">
 <style>
@@ -185,6 +186,8 @@ main{padding-block:16px 40px}
 .log .prow{align-items:flex-start}
 .welcome input{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px;min-height:44px;width:100%}
 body.nokey header .nav,body.nokey header .seg,body.nokey #people{display:none}
+.badge{background:var(--accent);color:var(--accent-ink);border-radius:999px;font-size:12px;font-weight:700;min-width:20px;height:20px;padding:0 6px;display:inline-grid;place-items:center;font-variant-numeric:tabular-nums}
+details summary{list-style:none}
 </style>
 </head>
 <body>
@@ -231,6 +234,7 @@ const todayStr=()=>ymd(new Date());
 const fmtTime=t=>{if(!t)return'';const[h,m]=t.split(':').map(Number);return new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+const MAIL_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg>';
 const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
 let data={members:[],events:[],todos:[]};
@@ -319,6 +323,8 @@ function renderHeader(){
   document.querySelectorAll('.seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===ui.view));
   $('#people').innerHTML=members().map(m=>`<button class="pchip" data-toggle="${m.id}" aria-pressed="${!ui.hidden.has(m.id)}"><span class="av" style="background:${m.color}">${esc(m.name.slice(0,1).toUpperCase())}</span>${esc(m.name)}</button>`).join('');
   $('#people').hidden=!data.members.length;
+  const pend=meta.inbound?meta.inbound.filter(r=>r.status==='pending').length:0;
+  $('#fromEmail').innerHTML=MAIL_ICON+'From email'+(pend?`<span class="badge">${pend}</span>`:'');
 }
 function renderClock(){$('#clock').textContent=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}
 
@@ -358,7 +364,7 @@ function renderMonth(){
 }
 function renderJoin(){
   return`<div class="welcome"><h2>Your household calendar</h2>
-  <p>One calendar for everyone at home. Each person gets their own colour, their own column of to-dos, and an email address that adds events for them automatically.</p>
+  <p>One calendar for everyone at home. Each person gets their own colour and their own column of to-dos, and can add events from any email they choose.</p>
   <form class="field" data-form="create"><label for="hh-name">Start a new household</label><input id="hh-name" type="text" placeholder="The Parkers" autocomplete="off"><div class="row"><button class="btn primary">Create household</button></div></form>
   <form class="field" data-form="join"><label for="hh-join">Or join one: paste the invite link someone sent you</label><input id="hh-join" type="text" placeholder="https://…/?join=…" autocomplete="off"><div class="row"><button class="btn">Join household</button></div></form>
   <p class="note">On iPhone or iPad, tap Share then Add to Home Screen to use it like an app. If you added it before joining, paste your invite link here once.</p></div>`;
@@ -593,87 +599,166 @@ function applyTheme(){
 $('#themeBtn').onclick=()=>{theme=THEMES[(THEMES.indexOf(theme)+1)%3];try{localStorage.setItem(KEY+':theme',theme)}catch(e){}applyTheme();toast(theme==='system'?'Matching your device':theme==='light'?'Light mode':'Dark mode')};
 applyTheme();
 
-/* ---------- events from email (any provider) ---------- */
-async function extractEvents(text){
-  const r=await API.call('POST','extract',{text:text.slice(0,200000)});
-  return r.events||[];
+/* ---------- adding events from emails: always the person's choice ---------- */
+// Three ways in, all chosen one email at a time and nothing automatic:
+//  1. Open an invite (.ics) from Mail, Gmail or Outlook with "Open in Household" / Share.
+//  2. Paste an email, or choose a saved email or invite file, here in the app (read on this device only).
+//  3. Forward one email to your own Household address; it waits under "To review" until you pick what to add.
+const DAY_FIRST=!/^en-(US|PH)|^(fil|es-US)/i.test(navigator.language||'');
+const pendingEmails=()=>meta.inbound.filter(r=>r.status==='pending');
+function fmtDay(d){return parseD(d).toLocaleDateString([],{weekday:'short',day:'numeric',month:'short',year:parseD(d).getFullYear()!==new Date().getFullYear()?'numeric':undefined})}
+function fmtWhen(e){return fmtDay(e.date)+(e.start?' · '+fmtTime(e.start)+(e.end?'–'+fmtTime(e.end):''):' · All day')}
+
+// Read a saved .eml on the device: subject, sender and plain text (no network).
+function readEml(raw){
+  const t=raw.replace(/\r\n/g,'\n');const split=t.indexOf('\n\n');const head=split>0?t.slice(0,split):'';
+  const header=n=>{const m=head.replace(/\n[ \t]+/g,' ').match(new RegExp('^'+n+':\\s*(.*)$','im'));return m?m[1].trim():''};
+  let body=split>0?t.slice(split+2):t;
+  if(/quoted-printable/i.test(t))body=body.replace(/=\n/g,'').replace(/=([0-9A-F]{2})/gi,(m,h)=>String.fromCharCode(parseInt(h,16)));
+  body=body.replace(/^[A-Za-z0-9+\/=]{60,}$/gm,'').replace(/^--.*$/gm,'').replace(/^Content-[\w-]+:.*$/gim,'').replace(/<(style|script)[\s\S]*?<\/\1>/gi,' ').replace(/<br\s*\/?>|<\/(p|div|tr|li)>/gi,'\n').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/[ \t]+/g,' ').replace(/\n{3,}/g,'\n\n').trim();
+  const subj=header('Subject').replace(/=\?[^?]+\?[QB]\?([^?]*)\?=/gi,(m,x)=>x.replace(/_/g,' '));
+  return{subject:subj,from:header('From'),date:header('Date'),text:body};
 }
-function emailSheet(preset){
-  let found=[];
-  const me=preset||shown()[0]?.id||members()[0]?.id;
-  openSheet(`<h2>Add events from an email</h2>
-    <p class="note">For a one-off email: paste it, or choose a saved email (.eml) or invite (.ics) file. Claude finds the dates and you choose what to add. To add events automatically, use each person\u2019s forwarding address (Household \u203a Email).</p>
-    <div class="field"><span class="lbl">Whose email is this?</span><div class="picks">${personPicks(me?[me]:[],true)}</div></div>
-    <div class="field"><label for="em-text">Email text</label><textarea id="em-text" placeholder="Paste the email here: school newsletters, booking confirmations, party invites…" style="min-height:130px"></textarea></div>
-    <div class="field"><label for="em-file">Or choose an email or invite file</label><input id="em-file" type="file" accept=".eml,.ics,.txt,message/rfc822,text/calendar,text/plain"></div>
-    <div id="em-found" class="field" hidden><span class="lbl">Found in this email</span><div id="em-list" class="plist"></div></div>
-    <p class="note" id="em-status" aria-live="polite"></p>
-    <div class="actions"><span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancel</button><button type="button" class="btn" id="em-scan">Find events</button><button class="btn primary" id="em-add" hidden>Add to calendar</button></div>`,
+function fromText(raw,name){
+  if(/BEGIN:VEVENT/.test(raw)&&!/^Content-Type:/im.test(raw.slice(0,500)))return{subject:name||'Calendar invite',from:'',invites:parseICS(raw),dates:[],excerpt:''};
+  const isEml=/^(received|from|subject|date|mime-version|return-path|message-id):/im.test(raw.slice(0,3000));
+  const m=isEml?readEml(raw):{subject:'',from:'',date:'',text:raw};
+  const ics=isEml&&/BEGIN:VEVENT[\s\S]*END:VEVENT/.exec(raw);
+  const ref=m.date&&!isNaN(new Date(m.date))?new Date(m.date):new Date();
+  return{subject:m.subject,from:m.from,invites:ics?parseICS(ics[0]):[],dates:ics?[]:HouseholdDates.findDates(`${m.subject}\n${m.text}`,{ref,dayFirst:DAY_FIRST}),excerpt:m.text.slice(0,1500)};
+}
+
+// The review screen: shows what was found and lets the person choose exactly what goes on the calendar.
+function reviewSheet(src,{who,onAdd,onDismiss,dismissLabel}){
+  const have=new Set(data.events.map(x=>x.uid).filter(Boolean));
+  const invites=(src.invites||[]).map(e=>({...e,dupe:!!(e.uid&&have.has(e.uid))}));
+  const dates=src.dates||[];
+  const title0=(src.subject||'').replace(/^((re|fw|fwd)\s*:\s*)+/i,'').slice(0,120);
+  openSheet(`<h2>Add to calendar</h2>
+    ${src.subject||src.from?`<div class="field"><span class="lbl">From this email</span><div style="font-weight:600">${esc(src.subject||'(no subject)')}</div>${src.from?`<div class="note">${esc(src.from)}</div>`:''}</div>`:''}
+    <div class="field"><span class="lbl">For</span><div class="picks">${personPicks(who,true)}</div></div>
+    ${invites.length?`<div class="field"><span class="lbl">Invites in this email</span><div class="plist">${invites.map((e,i)=>`<label class="prow"><input type="checkbox" data-inv="${i}" ${e.dupe?'disabled':'checked'} style="width:22px;height:22px;accent-color:var(--accent)"><span class="nm" style="white-space:normal">${esc(e.title||'Untitled')}<br><span class="note">${esc(fmtWhen(e))}${e.location?' · '+esc(e.location):''}${e.dupe?' · already on the calendar':''}</span></span></label>`).join('')}</div></div>`
+    :`${dates.length?`<div class="field"><span class="lbl">Dates in this email</span><p class="note" style="margin:0">Tap one to use it, or set the date yourself below.</p><div class="plist">${dates.map((d,i)=>`<button type="button" class="prow pick" data-date="${i}" aria-pressed="${i===0}" style="text-align:left;width:100%"><span class="nm" style="white-space:normal">${esc(fmtWhen(d))}<br><span class="note">“${esc(d.snippet)}”</span></span></button>`).join('')}</div></div>`:'<p class="note">No dates found in this email. Set the date yourself below.</p>'}
+    <div class="field"><label for="rv-title">Event</label><input id="rv-title" type="text" value="${esc(title0)}" placeholder="What is it?"></div>
+    <div class="field"><label for="rv-date">Date</label><input id="rv-date" type="date" value="${esc(dates[0]?dates[0].date:ui.cursor)}"></div>
+    <label class="toggle"><input id="rv-allday" type="checkbox" ${dates[0]&&dates[0].start?'':'checked'}> All day</label>
+    <div class="two" id="rv-times" ${dates[0]&&dates[0].start?'':'hidden'}><div class="field"><label for="rv-start">Starts</label><input id="rv-start" type="time" value="${esc(dates[0]&&dates[0].start||'09:00')}"></div><div class="field"><label for="rv-end">Ends</label><input id="rv-end" type="time" value="${esc(dates[0]&&dates[0].end||'')}"></div></div>
+    <div class="field"><label for="rv-loc">Where</label><input id="rv-loc" type="text" placeholder="Optional"></div>`}
+    ${src.excerpt?`<details class="field"><summary class="lbl" style="cursor:pointer">Show the email</summary><div class="note" style="white-space:pre-wrap;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:10px">${esc(src.excerpt)}</div></details>`:''}
+    <div class="actions">${onDismiss?`<button type="button" class="btn danger" id="rv-dismiss">${esc(dismissLabel||'Dismiss')}</button>`:''}<span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Add to calendar</button></div>`,
   (f,close)=>{
     bindPicks(f,true);
-    const status=f.querySelector('#em-status'),scan=f.querySelector('#em-scan'),add=f.querySelector('#em-add');
-    let fileText='';
-    f.querySelector('#em-file').onchange=async e=>{const file=e.target.files[0];fileText=file?await file.text():'';if(file)status.textContent=`${file.name} ready. Tap Find events.`};
-    function show(list){
-      found=list;f.querySelector('#em-found').hidden=!list.length;add.hidden=!list.length;
-      f.querySelector('#em-list').innerHTML=list.map((e,i)=>`<label class="prow"><input type="checkbox" data-i="${i}" checked style="width:22px;height:22px;accent-color:var(--accent)"><span class="nm" style="white-space:normal">${esc(e.title)}<br><span class="note">${esc(parseD(e.date).toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'}))}${e.allDay?' · All day':' · '+esc(fmtTime(e.start))+(e.end?'–'+esc(fmtTime(e.end)):'')}${e.location?' · '+esc(e.location):''}</span></span></label>`).join('');
-      status.textContent=list.length?`Found ${list.length} event${list.length>1?'s':''}. Untick any you don’t want.`:'No dates found in that email.';
-    }
-    scan.onclick=async()=>{
-      const raw=(fileText||f.querySelector('#em-text').value).trim();
-      if(!raw){status.textContent='Paste an email or choose a file first.';return}
-      scan.disabled=true;status.textContent='Reading the email…';
-      try{const have=new Set(data.events.map(x=>x.uid).filter(Boolean));show((await extractEvents(raw)).filter(x=>!x.uid||!have.has(x.uid)))}
-      catch(e){status.textContent=e&&e.message||'Couldn\u2019t read that email just now. Try again.'}
-      finally{scan.disabled=false}
-    };
+    const allday=f.querySelector('#rv-allday');
+    if(allday)allday.onchange=()=>f.querySelector('#rv-times').hidden=allday.checked;
+    f.querySelectorAll('[data-date]').forEach(b=>b.onclick=()=>{const d=dates[+b.dataset.date];
+      f.querySelectorAll('[data-date]').forEach(x=>x.setAttribute('aria-pressed',x===b));
+      f.querySelector('#rv-date').value=d.date;allday.checked=!d.start;f.querySelector('#rv-times').hidden=!d.start;
+      if(d.start)f.querySelector('#rv-start').value=d.start;f.querySelector('#rv-end').value=d.end||''});
+    const dis=f.querySelector('#rv-dismiss');if(dis)dis.onclick=()=>{close();onDismiss()};
     f.onsubmit=x=>{x.preventDefault();const ids=picked(f);
-      const list=[...f.querySelectorAll('#em-list input:checked')].map(c=>found[+c.dataset.i]);
-      if(!list.length){status.textContent='Tick at least one event.';return}
-      close();act(async b=>{for(const e of list)await b.add('events',{title:e.title,date:e.date,allDay:!!e.allDay,start:e.allDay?null:e.start||null,end:e.allDay?null:e.end||null,location:e.location||null,notes:e.notes||null,uid:e.uid||null,memberIds:ids,source:'email'});toast(`Added ${list.length} event${list.length>1?'s':''}.`)});
+      if(!ids.length){toast('Choose who this is for.');return}
+      let events;
+      if(invites.length)events=[...f.querySelectorAll('[data-inv]:checked')].map(c=>invites[+c.dataset.inv]).map(({dupe,...e})=>e);
+      else{const title=f.querySelector('#rv-title').value.trim(),date=f.querySelector('#rv-date').value;
+        if(!title||!date){toast(!title?'Give the event a name.':'Pick a date.');return}
+        const ad=allday.checked;events=[{title,date,allDay:ad,start:ad?null:f.querySelector('#rv-start').value||null,end:ad?null:f.querySelector('#rv-end').value||null,location:f.querySelector('#rv-loc').value.trim()||null}]}
+      if(!events.length){toast('Tick at least one event.');return}
+      close();onAdd(events,ids);
     };
+  });
+}
+const addLocal=(events,ids)=>act(async b=>{for(const e of events)await b.add('events',{title:e.title||'Untitled',date:e.date,allDay:!e.start,start:e.start||null,end:e.start?e.end||null:null,location:e.location||null,uid:e.uid||null,notes:null,memberIds:ids,source:'email'});toast(`Added ${events.length} event${events.length>1?'s':''}.`)});
+function openFromText(raw,name){const src=fromText(raw,name);const me=shown()[0]?.id||members()[0]?.id;reviewSheet(src,{who:me?[me]:[],onAdd:addLocal})}
+
+// Paste or choose a file: read here on the device; only the events you add are saved.
+function emailSheet(){
+  const n=pendingEmails().length;
+  openSheet(`<h2>Add from an email</h2>
+    ${n?`<button type="button" class="btn primary" id="em-review">Review ${n} forwarded email${n>1?'s':''}</button>`:''}
+    <p class="note" style="margin:0">Paste the part of an email with the date, or choose a saved email (.eml) or invite (.ics) file. It’s read on this device only, and you choose what to add.</p>
+    <div class="field"><label for="em-text">Email text</label><textarea id="em-text" placeholder="Paste from the email: “The school concert is on Wednesday 21 October at 6pm”" style="min-height:120px"></textarea></div>
+    <div class="field"><label for="em-file">Or choose a file</label><input id="em-file" type="file" accept=".eml,.ics,.txt,message/rfc822,text/calendar,text/plain"></div>
+    <p class="note" style="margin:0">Tip: in Mail, Gmail or Outlook you can also open an invite and choose Household to add it.</p>
+    <div class="actions"><span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Next</button></div>`,
+  (f,close)=>{
+    let file=null;
+    f.querySelector('#em-file').onchange=e=>{file=e.target.files[0]||null};
+    const rv=f.querySelector('#em-review');if(rv)rv.onclick=()=>{close();inboxSheet()};
+    f.onsubmit=async x=>{x.preventDefault();
+      const raw=file?await file.text():f.querySelector('#em-text').value;
+      if(!raw.trim()){toast('Paste an email or choose a file first.');return}
+      close();openFromText(raw,file&&file.name);
+    };
+  });
+}
+
+// Emails people forwarded to their own address, waiting for them to choose.
+function inboxSheet(){
+  const list=pendingEmails();
+  if(!list.length){toast('Nothing waiting to review.');return}
+  openSheet(`<h2>To review</h2>
+    <p class="note" style="margin:0">Emails you forwarded to Household. Nothing is added until you choose, and each email is deleted once you add from it or dismiss it (or after ${14} days).</p>
+    <div class="plist">${list.map(r=>{const m=member(r.member_id);return`<button type="button" class="prow" data-open="${r.id}" style="text-align:left;width:100%;background:transparent"><span class="av" style="background:${m?m.color:'var(--sunk)'}">${esc((m?m.name:'?').slice(0,1).toUpperCase())}</span><span class="nm" style="white-space:normal">${esc(r.subject||'(no subject)')}<br><span class="note">${esc(r.from_addr||'')} · ${esc(new Date(r.received_at.replace(' ','T')+'Z').toLocaleString([],{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}))} · ${r.invites&&r.invites.length?`${r.invites.length} invite${r.invites.length>1?'s':''}`:r.dates&&r.dates.length?`${r.dates.length} date${r.dates.length>1?'s':''} found`:'no dates found'}</span></span></button>`}).join('')}</div>
+    <div class="actions"><span class="spacer"></span><button type="button" class="btn primary" data-close>Done</button></div>`,
+  (f,close)=>{
+    f.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{const r=list.find(x=>x.id===b.dataset.open);close();
+      reviewSheet({subject:r.subject,from:r.from_addr,invites:r.invites,dates:r.dates,excerpt:r.excerpt},{
+        who:[r.member_id],
+        onAdd:(events,ids)=>act(async()=>{const res=await API.call('POST',`inbound/${r.id}/accept`,{events,memberIds:ids});toast(res.added?`Added ${res.added} event${res.added>1?'s':''}.`:'Those are already on the calendar.')}),
+        onDismiss:()=>act(async()=>{await API.call('DELETE',`inbound/${r.id}`);toast('Dismissed and deleted.')}),
+        dismissLabel:'Dismiss and delete'});
+    });
   });
 }
 
 /* ---------- each person's forwarding address ---------- */
 const PROVIDERS={
-  gmail:{name:'Gmail',one:'Open the email, tap the three dots, then Forward, and send it to the address above.',
-    auto:['On a computer, open Gmail and go to Settings › See all settings › Forwarding and POP/IMAP.','Choose Add a forwarding address and paste the address above. Gmail sends a confirmation code to it; it shows up below under Recent emails within a minute.','Enter the code in Gmail, then (to send only some emails) create a filter: search for the sender, e.g. from:school.org, choose Create filter, tick Forward it to and pick this address.']},
-  outlook:{name:'Outlook / Hotmail',one:'Open the email, choose Forward, and send it to the address above.',
-    auto:['In Outlook on the web, open Settings › Mail › Rules and choose Add new rule.','Pick a condition such as From: the school or club.','Add the action Forward to and paste the address above, then Save.']},
-  icloud:{name:'iCloud Mail',one:'In the Mail app, open the email, tap the reply arrow, then Forward, and send it to the address above.',
-    auto:['On icloud.com, open Mail, click the settings gear, then Rules › Add a rule.','Choose If a message is from: the sender you want.','Choose Then: Forward to and paste the address above.']},
-  yahoo:{name:'Yahoo',one:'Open the email, tap Forward, and send it to the address above.',
-    auto:['Yahoo only offers automatic forwarding on some plans. If yours has it: Settings › More settings › Mailboxes › your account › Forwarding.','Paste the address above and confirm with the code that shows up below under Recent emails.','Otherwise, forward each email by hand; it takes a few seconds.']},
-  other:{name:'Other',one:'Use Forward on the email and send it to the address above. Any email app works.',
-    auto:['Look in your email settings for Rules, Filters or Forwarding.','Add a rule for the senders you care about (school, clubs, doctor) with the action Forward to this address.','If your provider sends a confirmation email, it appears below under Recent emails.']}
+  gmail:{name:'Gmail',one:'Open the email, tap the three dots, choose Forward, and send it to the address above.'},
+  outlook:{name:'Outlook',one:'Open the email, choose Forward, and send it to the address above.'},
+  icloud:{name:'Apple Mail',one:'Open the email, tap the reply arrow, choose Forward, and send it to the address above.'},
+  yahoo:{name:'Yahoo',one:'Open the email, tap Forward, and send it to the address above.'},
+  other:{name:'Other',one:'Use Forward on the email and send it to the address above. Any email app works.'}
 };
-const STATUS={added:'Added to the calendar',duplicate:'Already on the calendar',nothing_found:'No dates found',needs_setup:'Only invites can be read until Claude is switched on',too_large:'Too large to read',error:'Couldn’t read this one',confirmation:'Confirmation email'};
+const STATUS={pending:'Waiting for you to review',added:'Added to the calendar',dismissed:'Dismissed',expired:'Deleted after 14 days',too_large:'Too large to read'};
 function inboundLog(memberId){
   const rows=meta.inbound.filter(r=>r.member_id===memberId).slice(0,8);
-  if(!rows.length)return'<p class="note">Nothing yet. Forward an email to try it.</p>';
-  return'<div class="log">'+rows.map(r=>`<div class="prow"><span class="nm" style="white-space:normal;font-weight:500">${esc(r.subject||'(no subject)')}<br><span class="note">${esc(r.from_addr||'')} · ${esc(new Date(r.received_at.replace(' ','T')+'Z').toLocaleString([],{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}))} · ${esc(r.status==='added'?`Added ${r.event_count} event${r.event_count>1?'s':''}`:STATUS[r.status]||r.status)}</span>${r.status==='confirmation'&&r.detail?`<br><span class="addr" style="display:block;margin-top:6px;font-size:12px">${esc(r.detail)}</span>`:''}</span></div>`).join('')+'</div>';
+  if(!rows.length)return'<p class="note">Nothing yet.</p>';
+  return'<div class="log">'+rows.map(r=>`<div class="prow"><span class="nm" style="white-space:normal;font-weight:500">${esc(r.subject||'(no subject)')}<br><span class="note">${esc(new Date(r.received_at.replace(' ','T')+'Z').toLocaleString([],{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}))} · ${esc(r.status==='added'?`Added ${r.event_count} event${r.event_count===1?'':'s'}`:STATUS[r.status]||r.status)}</span></span></div>`).join('')+'</div>';
 }
 function forwardSheet(m){
   if(!m)return;
   const on=meta.household&&meta.household.emailEnabled;
   let p=/gmail|googlemail/i.test(m.email||'')?'gmail':/outlook|hotmail|live\.|msn/i.test(m.email||'')?'outlook':/icloud|me\.com|mac\.com/i.test(m.email||'')?'icloud':/yahoo/i.test(m.email||'')?'yahoo':'other';
   openSheet(`<h2>${esc(m.name)}’s email</h2>
-    ${on&&m.inbox?`<div class="field"><span class="lbl">Forward emails here</span><div class="addr" id="fw-addr">${esc(m.inbox)}</div><div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="fw-copy">Copy address</button></div>
-      <p class="note" style="margin:0">Anything sent here is read for dates and added to ${esc(m.name)}’s calendar, tagged “from email”. Keep this address private.</p></div>
-    <div class="field"><span class="lbl">Where is ${esc(m.name)}’s email?</span><div class="tabs">${Object.entries(PROVIDERS).map(([k,v])=>`<button type="button" class="pick txt" data-prov="${k}" aria-pressed="${k===p}">${v.name}</button>`).join('')}</div></div>
-    <div class="field"><span class="lbl">Send one email</span><p style="margin:0" id="fw-one"></p></div>
-    <div class="field"><span class="lbl">Send them automatically</span><ol class="steps" id="fw-auto"></ol></div>`
-    :`<p class="note">Forwarding addresses appear here once the household’s email domain is set up. Until then, use From email to paste emails in.</p>`}
+    <p class="note" style="margin:0">Household never connects to your inbox. You choose each email to send it, and you choose what gets added.</p>
+    <div class="field"><span class="lbl">Invites</span><p style="margin:0">Open the invite in your email app, tap the attachment or Share, and choose Household.</p></div>
+    ${on&&m.inbox?`<div class="field"><span class="lbl">Any other email: forward it to</span><div class="addr">${esc(m.inbox)}</div><div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="fw-copy">Copy address</button></div>
+      <p class="note" style="margin:0">It waits under To review until ${esc(m.name)} picks what to add, then it’s deleted. Keep this address private.</p></div>
+    <div class="field"><span class="lbl">How to forward one email</span><div class="tabs">${Object.entries(PROVIDERS).map(([k,v])=>`<button type="button" class="pick txt" data-prov="${k}" aria-pressed="${k===p}">${v.name}</button>`).join('')}</div><p style="margin:0" id="fw-one"></p></div>`
+    :`<div class="field"><span class="lbl">Any other email</span><p style="margin:0">Use From email and paste the part with the date.</p></div>`}
     <div class="field"><span class="lbl">Recent emails</span>${inboundLog(m.id)}</div>
     <div class="actions"><span class="spacer"></span><button type="button" class="btn primary" data-close>Done</button></div>`,
   (f)=>{
-    const show=()=>{const v=PROVIDERS[p];if(!f.querySelector('#fw-one'))return;f.querySelector('#fw-one').textContent=v.one;f.querySelector('#fw-auto').innerHTML=v.auto.map(x=>`<li>${esc(x)}</li>`).join('');
-      f.querySelectorAll('[data-prov]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.prov===p))};
+    const show=()=>{const el=f.querySelector('#fw-one');if(!el)return;el.textContent=PROVIDERS[p].one;f.querySelectorAll('[data-prov]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.prov===p))};
     f.querySelectorAll('[data-prov]').forEach(b=>b.onclick=()=>{p=b.dataset.prov;show()});
     const c=f.querySelector('#fw-copy');if(c)c.onclick=e=>copy(m.inbox,e.target);
     show();
   });
+}
+
+// Invites opened from another app: the iOS/Android "Open in Household", or Android's share sheet for the installed website.
+async function openSharedFile(url){
+  try{
+    const C=window.Capacitor;const src=C&&C.convertFileSrc?C.convertFileSrc(url):url;
+    const raw=await (await fetch(src)).text();
+    if(!data.members.length){toast('Add someone to the household first, then open the invite again.');return}
+    openFromText(raw,'Calendar invite');
+  }catch(e){toast('Couldn’t open that file. Save it and choose it under From email instead.')}
+}
+async function checkShareTarget(){
+  if(!new URLSearchParams(location.search).has('shared'))return;
+  history.replaceState(null,'',location.pathname);
+  try{const c=await caches.open('household-share');const r=await c.match('/shared-file');if(r){const raw=await r.text();await c.delete('/shared-file');openFromText(raw,'Shared invite')}}catch(e){}
 }
 $('#fromEmail').onclick=()=>data.members.length?emailSheet():peopleSheet();
 
@@ -718,7 +803,10 @@ function clearExamples(){
   if(!NATIVE&&'serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
   // In the iOS/Android app, an invite link opened on the phone lands here.
   const AppPlugin=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.App;
-  if(AppPlugin)AppPlugin.addListener('appUrlOpen',ev=>{const k=readInvite(ev.url);if(k){saveKey(k);ui.mode='connecting';refresh()}});
+  if(AppPlugin)AppPlugin.addListener('appUrlOpen',ev=>{const u=String(ev.url||'');const k=readInvite(u);if(k){saveKey(k);ui.mode='connecting';refresh();return}
+    if(/^(file|content):/i.test(u))refresh().then(()=>openSharedFile(u))});
+  if(AppPlugin&&AppPlugin.getLaunchUrl)AppPlugin.getLaunchUrl().then(r=>{const u=r&&r.url||'';if(/^(file|content):/i.test(u))refresh().then(()=>openSharedFile(u))}).catch(()=>{});
+  refresh().then(checkShareTarget);
 })();
 </script>
 </body>

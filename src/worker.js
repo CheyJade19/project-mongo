@@ -1,8 +1,14 @@
 // Household Calendar: serves the app (from /public), a small JSON API under /api,
-// and receives forwarded email for each person's private address.
+// and receives the emails people choose to forward to their private address.
+// Forwarded emails wait in that person's "To review" list; nothing reaches the calendar
+// until they pick what to add, and the email's text is deleted once they have.
 import PostalMime from "postal-mime";
 import { parseICS } from "./ics.js";
-import { extractEvents, htmlToText } from "./extract.js";
+import { htmlToText } from "./text.js";
+import "../public/dates.js";
+
+const { findDates } = globalThis.HouseholdDates;
+const KEEP_PENDING_DAYS = 14;
 
 const COLS = new Set(["members", "events", "todos"]);
 const MAX_DOC = 64 * 1024;
@@ -50,16 +56,20 @@ async function ensureInbox(env, hid, memberId) {
 }
 
 async function loadState(env, h) {
+  await env.DB.prepare(
+    `UPDATE inbound SET status = 'expired', payload = NULL WHERE household_id = ? AND status = 'pending' AND received_at < datetime('now', '-${KEEP_PENDING_DAYS} days')`,
+  ).bind(h.id).run();
   const [items, inboxes, inbound] = await Promise.all([
     env.DB.prepare("SELECT col, id, data FROM items WHERE household_id = ?").bind(h.id).all(),
     env.DB.prepare("SELECT token, member_id FROM inboxes WHERE household_id = ?").bind(h.id).all(),
-    env.DB.prepare("SELECT id, member_id, from_addr, subject, received_at, status, event_count, detail FROM inbound WHERE household_id = ? ORDER BY received_at DESC LIMIT 30").bind(h.id).all(),
+    env.DB.prepare("SELECT id, member_id, from_addr, subject, received_at, status, event_count, payload FROM inbound WHERE household_id = ? ORDER BY received_at DESC LIMIT 40").bind(h.id).all(),
   ]);
   const state = { members: [], events: [], todos: [] };
   for (const r of items.results) state[r.col].push({ ...JSON.parse(r.data), id: r.id });
   const tokens = Object.fromEntries(inboxes.results.map((r) => [r.member_id, r.token]));
   state.members = state.members.map((m) => ({ ...m, inbox: inboxAddress(env, m, tokens[m.id]) }));
-  return { household: { name: h.name, tz: h.tz, emailEnabled: !!env.EMAIL_DOMAIN, claudeEnabled: !!env.ANTHROPIC_API_KEY }, ...state, inbound: inbound.results };
+  const inboundRows = inbound.results.map(({ payload, ...r }) => ({ ...r, ...(payload ? JSON.parse(payload) : {}) }));
+  return { household: { name: h.name, tz: h.tz, emailEnabled: !!env.EMAIL_DOMAIN }, ...state, inbound: inboundRows };
 }
 
 async function putItem(env, hid, col, id, data) {
@@ -72,7 +82,7 @@ async function putItem(env, hid, col, id, data) {
   ).bind(hid, col, id, text).run();
 }
 
-async function addEvents(env, hid, memberId, events, extra) {
+async function addEvents(env, hid, memberIds, events, extra) {
   const existing = await env.DB.prepare("SELECT data FROM items WHERE household_id = ? AND col = 'events'").bind(hid).all();
   const seen = new Set();
   for (const r of existing.results) {
@@ -85,10 +95,25 @@ async function addEvents(env, hid, memberId, events, extra) {
     const k = `k:${e.title.toLowerCase()}|${e.date}|${e.start || ""}`;
     if ((e.uid && seen.has("uid:" + e.uid)) || seen.has(k)) continue;
     seen.add(k);
-    await putItem(env, hid, "events", randomId(), { ...e, memberIds: [memberId], source: "email", ...extra });
+    await putItem(env, hid, "events", randomId(), { ...e, memberIds, source: "email", ...extra });
     added++;
   }
   return added;
+}
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/, HHMM = /^\d{2}:\d{2}$/;
+function cleanEvent(e) {
+  if (!e || !DATE.test(e.date || "")) return null;
+  const start = HHMM.test(e.start || "") ? e.start : null;
+  return {
+    title: String(e.title || "Untitled").slice(0, 120),
+    date: e.date,
+    allDay: !start,
+    start,
+    end: start && HHMM.test(e.end || "") ? e.end : null,
+    location: e.location ? String(e.location).slice(0, 160) : null,
+    uid: e.uid ? String(e.uid).slice(0, 300) : null,
+  };
 }
 
 async function api(request, env, url) {
@@ -117,25 +142,25 @@ async function api(request, env, url) {
     return json({ ok: true });
   }
 
-  // Paste or upload an email in the app: find events but don't save them; the person picks.
-  if (path[0] === "extract" && method === "POST") {
-    const body = await request.json().catch(() => ({}));
-    const raw = String(body.text || "");
-    if (!raw.trim()) return fail(400, "Paste an email first.");
-    if (/BEGIN:VEVENT/.test(raw)) return json({ events: parseICS(raw, h.tz) });
-    let subject = "", from = "", sentAt = "", text = raw;
-    if (/^(received|from|subject|date|mime-version|return-path):/im.test(raw.slice(0, 2000)) && /\n\r?\n/.test(raw)) {
-      try {
-        const mail = await PostalMime.parse(raw);
-        subject = mail.subject || ""; from = mail.from?.address || ""; sentAt = mail.date || "";
-        const ics = (mail.attachments || []).filter((a) => /calendar|\.ics$/i.test(a.mimeType + " " + (a.filename || "")));
-        if (ics.length) return json({ events: ics.flatMap((a) => parseICS(decode(a.content), h.tz)) });
-        text = mail.text || htmlToText(mail.html || "") || raw;
-      } catch { /* treat as plain text */ }
+  // A person reviews one forwarded email: add the events they picked, or dismiss it.
+  // Either way the email's text is deleted from the server.
+  if (path[0] === "inbound" && path[1]) {
+    const row = await env.DB.prepare("SELECT id, member_id, subject, status FROM inbound WHERE id = ? AND household_id = ?").bind(path[1], h.id).first();
+    if (!row) return fail(404, "That email is no longer here.");
+    if (method === "POST" && path[2] === "accept") {
+      const body = await request.json().catch(() => ({}));
+      const memberIds = Array.isArray(body.memberIds) && body.memberIds.length ? body.memberIds.map(String).slice(0, 20) : [row.member_id];
+      const events = (Array.isArray(body.events) ? body.events : []).slice(0, 50).map(cleanEvent).filter(Boolean);
+      if (!events.length) return fail(400, "Pick at least one event to add.");
+      const added = await addEvents(env, h.id, memberIds, events, { emailSubject: (row.subject || "").slice(0, 200) });
+      await env.DB.prepare("UPDATE inbound SET status = 'added', event_count = ?, payload = NULL WHERE id = ?").bind(added, row.id).run();
+      return json({ added });
     }
-    if (!env.ANTHROPIC_API_KEY) return fail(503, "Reading ordinary emails isn't switched on yet. Calendar invites (.ics) still work.");
-    const r = await extractEvents(env, { subject, from, sentAt, text, timeZone: h.tz });
-    return json({ events: r.events });
+    if (method === "DELETE") {
+      await env.DB.prepare("UPDATE inbound SET status = 'dismissed', payload = NULL WHERE id = ?").bind(row.id).run();
+      return json({ ok: true });
+    }
+    return fail(405, "Not allowed");
   }
 
   const [col, id] = path;
@@ -171,33 +196,23 @@ async function receiveEmail(message, env) {
     "SELECT i.household_id, i.member_id, h.tz FROM inboxes i JOIN households h ON h.id = i.household_id WHERE i.token = ?",
   ).bind(token).first();
   if (!inbox) { message.setReject("Unknown address"); return; }
-  const log = async (status, count, detail, mail) =>
-    env.DB.prepare("INSERT INTO inbound (id, household_id, member_id, from_addr, subject, status, event_count, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(randomId(), inbox.household_id, inbox.member_id, mail?.from?.address || message.from, (mail?.subject || "").slice(0, 200), status, count, detail || null).run();
+  const save = (status, mail, payload) =>
+    env.DB.prepare("INSERT INTO inbound (id, household_id, member_id, from_addr, subject, status, payload) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .bind(randomId(), inbox.household_id, inbox.member_id, (mail?.from?.address || message.from || "").slice(0, 200),
+        (mail?.subject || "").slice(0, 200), status, payload ? JSON.stringify(payload) : null).run();
 
-  if (message.rawSize > MAX_EMAIL) { await log("too_large", 0, "Email was larger than 10 MB"); return; }
+  if (message.rawSize > MAX_EMAIL) { await save("too_large", null, null); return; }
   const mail = await PostalMime.parse(message.raw);
-  try {
-    const ics = (mail.attachments || []).filter((a) => /calendar|\.ics$/i.test(a.mimeType + " " + (a.filename || "")));
-    let events = ics.flatMap((a) => parseICS(decode(a.content), inbox.tz));
-    const text0 = mail.text || htmlToText(mail.html || "");
-    // Providers confirm a new forwarding address by emailing it a code or link: show it in the app.
-    if (!events.length && /forwarding|confirm|verif/i.test(mail.subject || "") && /forward/i.test((mail.subject || "") + text0.slice(0, 2000))) {
-      const link = (text0.match(/https?:\/\/\S+/) || [])[0];
-      const code = (text0.match(/\b\d{6,10}\b/) || [])[0];
-      await log("confirmation", 0, [code && `Code: ${code}`, link].filter(Boolean).join("  ") || text0.slice(0, 300), mail);
-      return;
-    }
-    if (!events.length) {
-      const r = await extractEvents(env, { subject: mail.subject, from: mail.from?.address, sentAt: mail.date, text: text0, timeZone: inbox.tz });
-      if (r.skipped) { await log("needs_setup", 0, "Only calendar invites are read until Claude is switched on", mail); return; }
-      events = r.events;
-    }
-    const added = await addEvents(env, inbox.household_id, inbox.member_id, events, { emailSubject: (mail.subject || "").slice(0, 200) });
-    await log(added ? "added" : events.length ? "duplicate" : "nothing_found", added, null, mail);
-  } catch (e) {
-    await log("error", 0, String(e?.message || e).slice(0, 300), mail);
-  }
+  // Keep only what the person needs to choose events: invites, the dates written in the email,
+  // and a short excerpt to recognise it by. It waits for them in the app.
+  const invites = (mail.attachments || [])
+    .filter((a) => /calendar|\.ics$/i.test(a.mimeType + " " + (a.filename || "")))
+    .flatMap((a) => parseICS(decode(a.content), inbox.tz))
+    .slice(0, 50);
+  const text = (mail.text || htmlToText(mail.html || "")).slice(0, 20000);
+  const sent = mail.date ? new Date(mail.date) : new Date();
+  const dates = invites.length ? [] : findDates(`${mail.subject || ""}\n${text}`, { ref: isNaN(sent) ? new Date() : sent });
+  await save("pending", mail, { invites, dates, excerpt: text.slice(0, 1500) });
 }
 
 export default {

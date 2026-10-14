@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseICS } from "../src/ics.js";
-import { htmlToText } from "../src/extract.js";
+import { htmlToText } from "../src/text.js";
 
 const wrap = (body) => `BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\n${body}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
 

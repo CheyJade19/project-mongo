@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS inboxes (
 );
 CREATE INDEX IF NOT EXISTS inboxes_member ON inboxes (household_id, member_id);
 
--- A log of forwarded emails so people can see what was picked up.
+-- Emails a person chose to forward. Nothing is added to the calendar from them until that
+-- person reviews the email in the app and picks what to add; the email's text is then deleted.
 CREATE TABLE IF NOT EXISTS inbound (
   id TEXT PRIMARY KEY,
   household_id TEXT NOT NULL,
@@ -33,8 +34,8 @@ CREATE TABLE IF NOT EXISTS inbound (
   from_addr TEXT,
   subject TEXT,
   received_at TEXT NOT NULL DEFAULT (datetime('now')),
-  status TEXT NOT NULL,
+  status TEXT NOT NULL,          -- pending | added | dismissed | expired | too_large
   event_count INTEGER NOT NULL DEFAULT 0,
-  detail TEXT
+  payload TEXT                   -- the email's text, invites and found dates while pending; NULL afterwards
 );
 CREATE INDEX IF NOT EXISTS inbound_household ON inbound (household_id, received_at);
